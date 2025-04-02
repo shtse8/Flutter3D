@@ -179,8 +179,9 @@ function setupPipeline(meshData) {
         @vertex
         fn vs_main(@location(0) pos: vec2<f32>, @location(1) color: vec3<f32>) -> VertexOutput {
             var output : VertexOutput;
-            // Multiply position by model-view-projection matrix
-            output.position = uniforms.modelViewProjectionMatrix * vec4<f32>(pos, 0.0, 1.0);
+            // TEMPORARY DEBUG: Output raw position, ignoring matrix
+            output.position = vec4<f32>(pos, 0.0, 1.0);
+            // output.position = uniforms.modelViewProjectionMatrix * vec4<f32>(pos, 0.0, 1.0);
             output.color = vec4<f32>(color, 1.0);
             return output;
         }
@@ -295,7 +296,7 @@ function renderMesh(meshId, transformMatrix) {
     }
 
     // Log the received matrix for debugging
-    console.log(`JS: Rendering mesh ${meshId} with matrix:`, transformMatrix); // Can be very verbose
+    // console.log(`JS: Rendering mesh ${meshId} with matrix:`, transformMatrix); // Can be very verbose
 
     // Update the uniform buffer with the latest matrix
     // Use the explicit buffer source signature for writeBuffer

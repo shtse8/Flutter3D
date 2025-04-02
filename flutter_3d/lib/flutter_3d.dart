@@ -57,9 +57,9 @@ class Renderer {
         }
 
         // Log the matrix before sending
-        print(
-          "Renderer: Sending transform for mesh $meshHash:\n${object.transform}",
-        ); // Can be verbose
+        // print(
+        //   "Renderer: Sending transform for mesh $meshHash:\n${object.transform}",
+        // ); // Can be verbose
         // Render the mesh using the platform implementation, passing its transform
         _platformRenderer!.renderMesh(mesh, object.transform);
       }
