@@ -2,7 +2,7 @@
 
 ## Current Status
 
-*   **Overall:** Basic Web/WebGPU pipeline structure implemented. Ready for initial testing.
+*   **Overall:** Basic Web/WebGPU triangle rendering working.
 *   **Date:** 2025-04-02
 
 ## What Works
@@ -12,15 +12,15 @@
 *   Flutter plugin project structure created (`flutter_3d/`).
 *   Initial Dart API classes defined (`flutter_3d/lib/flutter_3d.dart`).
 *   Placeholder test files updated.
-*   Created initial JS backend (`flutter_3d/web/flutter_3d_webgpu.js`).
+*   Created JS backend (`flutter_3d/example/web/flutter_3d_webgpu.js`) with triangle rendering logic.
 *   Created Dart web interop bridge (`flutter_3d/lib/flutter_3d_web.dart`).
-*   Updated example app (`flutter_3d/example/`) to load JS and attempt WebGPU initialization/canvas clearing.
+*   Updated example app (`flutter_3d/example/`) to load JS and render triangle via WebGPU.
 
 ## What's Left To Build (High Level)
 
 *   Dart API **implementation** (connecting to web backend).
-*   Platform bridge implementation (refining JS-interop).
-*   Actual drawing logic in WebGPU (triangles, meshes).
+*   Platform bridge implementation (connecting Dart API to JS-interop).
+*   Drawing logic for more complex meshes.
 *   Native backend adapters (starting with Web/WebGPU).
 *   Shader handling system.
 *   Asset loading.

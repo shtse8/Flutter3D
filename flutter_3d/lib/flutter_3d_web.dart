@@ -1,5 +1,6 @@
 // ignore: avoid_web_libraries_in_flutter
-import 'dart:js_interop'; // Using js_interop for modern JS interaction
+import 'dart:js_interop';
+import 'dart:js_interop_unsafe'; // Import for setProperty extension method
 
 import 'package:flutter_web_plugins/flutter_web_plugins.dart';
 import 'package:web/web.dart'
@@ -29,6 +30,18 @@ extension type NavigatorGPU._(web.Navigator navigator)
 
 // --- End JS Interop Definitions ---
 
+// /// Extension to convert VertexAttribute to a JSObjectBox for interop.
+// /// NOTE: Analyzer seems to have issues with setProperty inside this extension.
+// extension VertexAttributeToJS on VertexAttribute {
+//   JSObject get toJSBox {
+//     final obj = JSObject();
+//     setProperty(obj, 'name'.toJS, name.toJS);
+//     setProperty(obj, 'offset'.toJS, offset.toJS);
+//     setProperty(obj, 'format'.toJS, format.toJS);
+//     return obj;
+//   }
+// }
+
 // --- JS Interop Bindings for flutter_3d_webgpu.js ---
 
 // Define the shape of the object exposed on the window
@@ -38,13 +51,22 @@ class Flutter3DWebGPUJS {}
 
 extension Flutter3DWebGPUJSMethods on Flutter3DWebGPUJS {
   @JS('initWebGPU')
-  external JSPromise<JSBoolean> initWebGPU(); // Returns a Promise<boolean>
+  external JSPromise<JSBoolean> initWebGPU();
 
   @JS('configureCanvasContext')
-  external JSBoolean configureCanvasContext(web.HTMLCanvasElement canvas); // Returns boolean
+  external JSBoolean configureCanvasContext(web.HTMLCanvasElement canvas);
 
-  @JS('renderFrame')
-  external void renderFrame(); // Returns void
+  // New function to create/update GPU buffer for a mesh
+  @JS('setupMeshBuffer')
+  external JSAny? setupMeshBuffer(
+    String meshId,
+    JSTypedArray vertices,
+    JSNumber stride,
+    JSArray<JSObject> attributes,
+  ); // Returns buffer handle or null
+
+  @JS('renderMesh')
+  external void renderMesh(String meshId); // Accepts meshId
 }
 
 // Helper to access the global object
@@ -114,20 +136,66 @@ class Flutter3dWeb {
     }
   }
 
-  /// Calls the JavaScript renderFrame function.
-  void callRenderFrame() {
+  /// Creates or updates the GPU buffer for a given mesh.
+  /// Returns a handle (e.g., an ID or the buffer itself) for the GPU buffer.
+  dynamic setupMesh(Mesh mesh) {
+    // TODO: Need a way to uniquely identify meshes if we want to reuse buffers.
+    // For now, let's use hashCode as a simple ID, but this isn't robust.
+    final meshId = mesh.hashCode.toString();
+
     final jsObject = _flutter3dWebGPU;
     if (jsObject == null) {
-      print(
-        'Error: flutter_3d_webgpu.js script not loaded or object not found.',
+      print('Error: flutter_3d_webgpu.js script not loaded.');
+      return null;
+    }
+    try {
+      // Convert Dart list to JS TypedArray and attributes to JSArray<JSObject>
+      final jsVertices = mesh.vertices.toJS;
+      final jsStride = mesh.vertexStride.toJS;
+      // Manually create JSArray<JSObject> for attributes
+      final jsAttributesList = <JSObject>[];
+      for (final attr in mesh.attributes) {
+        final jsAttr = JSObject();
+        // Use the setProperty extension method from dart:js_interop_unsafe
+        jsAttr.setProperty('name'.toJS, attr.name.toJS);
+        jsAttr.setProperty('offset'.toJS, attr.offset.toJS);
+        jsAttr.setProperty('format'.toJS, attr.format.toJS);
+        jsAttributesList.add(jsAttr);
+      }
+      final jsAttributes = jsAttributesList.toJS;
+
+      final bufferHandle = jsObject.setupMeshBuffer(
+        meshId,
+        jsVertices,
+        jsStride,
+        jsAttributes,
       );
+      print(
+        'Dart: setupMeshBuffer called for mesh $meshId, handle: $bufferHandle',
+      );
+      return bufferHandle; // This might be null if JS function doesn't return handle yet
+    } catch (e) {
+      print('Dart: Error calling setupMeshBuffer: $e');
+      return null;
+    }
+  }
+
+  /// Calls the JavaScript renderMesh function for a specific mesh.
+  /// Assumes setupMesh has already been called for this mesh.
+  void renderMesh(/* dynamic bufferHandle, */ Mesh mesh) {
+    // Pass mesh for now
+    final jsObject = _flutter3dWebGPU;
+    if (jsObject == null) {
+      print('Error: flutter_3d_webgpu.js script not loaded.');
       return;
     }
     try {
-      jsObject.renderFrame();
-      // print('Dart: renderFrame called.'); // Avoid logging every frame
+      // Pass the meshId to the JS renderMesh function
+      final meshId = mesh.hashCode.toString();
+      jsObject.renderMesh(meshId);
+      // print('Dart: renderMesh called.');
     } catch (e) {
-      print('Dart: Error calling renderFrame: $e');
+      print('Dart: Error calling renderMesh: $e');
     }
   }
 

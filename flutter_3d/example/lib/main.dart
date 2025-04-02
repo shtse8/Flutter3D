@@ -1,8 +1,11 @@
 import 'dart:async';
+import 'dart:typed_data'; // Needed for Float32List
 import 'package:flutter/material.dart';
 
-// Import the web implementation and JS interop types
-import 'package:flutter_3d/flutter_3d_web.dart';
+// Import the main plugin library
+import 'package:flutter_3d/flutter_3d.dart';
+
+// Import web-specific libraries needed for canvas setup
 import 'package:web/web.dart' as web;
 import 'dart:ui_web' as ui_web;
 
@@ -18,11 +21,14 @@ class MyApp extends StatefulWidget {
 }
 
 class _MyAppState extends State<MyApp> {
-  final Flutter3dWeb _flutter3dWeb = Flutter3dWeb();
-  bool _isWebGPUInitialized = false;
-  bool _isCanvasConfigured = false;
+  // Use the core API classes
+  final Renderer _renderer = Renderer();
+  final Scene _scene = Scene();
+  final Camera _camera = Camera(); // Basic camera for now
+
+  bool _isRendererInitialized = false;
   String? _errorMessage;
-  Timer? _renderLoopTimer;
+  // Timer? _renderLoopTimer; // We'll use addPostFrameCallback
 
   // Unique ID for the platform view
   final String _viewId = 'flutter3d-canvas';
@@ -35,57 +41,45 @@ class _MyAppState extends State<MyApp> {
 
   @override
   void dispose() {
-    _renderLoopTimer?.cancel();
-    // TODO: Add any necessary WebGPU resource disposal calls via _flutter3dWeb
+    _renderer.dispose(); // Dispose the renderer
+    // Render loop should stop automatically due to `mounted` check
     super.dispose();
   }
 
   Future<void> _initGraphics() async {
     try {
-      // Initialize WebGPU via JS interop
-      final gpuInitSuccess = await _flutter3dWeb.initializeWebGPU();
-      if (!gpuInitSuccess) {
-        setState(() {
-          _errorMessage =
-              'Failed to initialize WebGPU. Check browser compatibility/settings.';
-        });
-        return;
-      }
-      setState(() {
-        _isWebGPUInitialized = true;
-      });
-
-      // Create and register the canvas element
+      // --- Canvas Setup (remains the same) ---
       final web.HTMLCanvasElement canvas =
           web.HTMLCanvasElement()
             ..id = _viewId
-            // Set initial size (can be adjusted later)
             ..width = 500
             ..height = 500
-            ..style.width =
-                '100%' // Make it responsive within its container
+            ..style.width = '100%'
             ..style.height = '100%';
 
-      // Register the canvas factory
       // ignore: undefined_prefixed_name
       ui_web.platformViewRegistry.registerViewFactory(
         _viewId,
         (int viewId) => canvas,
       );
 
-      // Configure the canvas context via JS interop
-      final canvasConfigSuccess = _flutter3dWeb.configureCanvas(canvas);
-      if (!canvasConfigSuccess) {
+      // --- Renderer Initialization ---
+      final initSuccess = await _renderer.initialize(canvas);
+      if (!initSuccess) {
         setState(() {
-          _errorMessage = 'Failed to configure WebGPU canvas context.';
+          _errorMessage = 'Failed to initialize Renderer (WebGPU backend).';
         });
         return;
       }
+
+      // --- Scene Setup ---
+      _setupScene();
+
       setState(() {
-        _isCanvasConfigured = true;
+        _isRendererInitialized = true;
       });
 
-      // Start a simple render loop
+      // Start the render loop
       _startRenderLoop();
     } catch (e) {
       print('Error during graphics initialization: $e');
@@ -95,17 +89,68 @@ class _MyAppState extends State<MyApp> {
     }
   }
 
-  void _startRenderLoop() {
-    // Simple timer-based loop. For real applications, use Ticker or AnimationController.
-    _renderLoopTimer = Timer.periodic(const Duration(milliseconds: 16), (
-      timer,
-    ) {
-      if (mounted && _isWebGPUInitialized && _isCanvasConfigured) {
-        _flutter3dWeb.callRenderFrame();
-      } else {
-        timer.cancel(); // Stop if state is no longer valid
+  void _setupScene() {
+    // Define triangle mesh data using the API
+    final Float32List vertices = Float32List.fromList([
+      // Position      Color
+      0.0, 0.5, 1.0, 0.0, 0.0, // Top vertex, red
+      -0.5, -0.5, 0.0, 1.0, 0.0, // Bottom left, green
+      0.5, -0.5, 0.0, 0.0, 1.0, // Bottom right, blue
+    ]);
+    const int vertexStride =
+        5 * Float32List.bytesPerElement; // 5 floats per vertex
+    final List<VertexAttribute> attributes = [
+      VertexAttribute(name: 'position', offset: 0, format: 'float32x2'),
+      VertexAttribute(
+        name: 'color',
+        offset: 2 * Float32List.bytesPerElement,
+        format: 'float32x3',
+      ),
+    ];
+
+    final Mesh triangleMesh = Mesh(
+      vertices: vertices,
+      vertexCount: 3,
+      vertexStride: vertexStride,
+      attributes: attributes,
+    );
+
+    // Create an object and add it to the scene
+    // TODO: Create a basic Material class later
+    final Object3D triangleObject = Object3D(mesh: triangleMesh);
+    _scene.add(triangleObject);
+
+    print("Scene setup complete with one triangle object.");
+  }
+
+  void _requestRenderFrame() {
+    if (!mounted || !_isRendererInitialized) {
+      print("Render loop stopped.");
+      return;
+    }
+
+    try {
+      // Call the core renderer API
+      _renderer.render(_scene, _camera);
+    } catch (e) {
+      print("Dart: Error calling renderer.render: $e");
+      setState(() {
+        _errorMessage = "Error during rendering: $e";
+      });
+      return; // Stop loop on error
+    }
+
+    // Request the next frame
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _isRendererInitialized) {
+        _requestRenderFrame();
       }
     });
+  }
+
+  void _startRenderLoop() {
+    print("Starting render loop using Renderer API...");
+    WidgetsBinding.instance.addPostFrameCallback((_) => _requestRenderFrame());
   }
 
   @override
@@ -119,7 +164,7 @@ class _MyAppState extends State<MyApp> {
           style: const TextStyle(color: Colors.red),
         ),
       );
-    } else if (_isWebGPUInitialized && _isCanvasConfigured) {
+    } else if (_isRendererInitialized) {
       // Display the HtmlElementView containing the canvas
       bodyContent = HtmlElementView(viewType: _viewId);
     } else {
@@ -129,7 +174,7 @@ class _MyAppState extends State<MyApp> {
 
     return MaterialApp(
       home: Scaffold(
-        appBar: AppBar(title: const Text('Flutter 3D WebGPU Example')),
+        appBar: AppBar(title: const Text('Flutter 3D API Example')),
         body: bodyContent,
       ),
     );
