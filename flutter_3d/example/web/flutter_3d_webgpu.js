@@ -7,6 +7,8 @@ let gpuDevice = null;
 let gpuAdapter = null;
 let canvasContext = null;
 let presentationFormat = null;
+let pipeline = null; // Added for render pipeline
+let vertexBuffer = null; // Added for triangle vertices
 
 // --- Initialization ---
 
@@ -37,7 +39,6 @@ async function initWebGPU() {
         }
         console.log("GPU Adapter obtained:", gpuAdapter);
 
-        // TODO: Add feature checks or request specific limits if needed
         gpuDevice = await gpuAdapter.requestDevice();
         if (!gpuDevice) {
             console.error("Failed to get GPU device.");
@@ -50,6 +51,8 @@ async function initWebGPU() {
             console.error(`WebGPU device lost: ${info.message}`);
             gpuDevice = null;
             gpuAdapter = null;
+            pipeline = null; // Reset pipeline on device loss
+            vertexBuffer = null; // Reset buffer on device loss
             // TODO: Handle device loss - potentially trigger re-initialization?
         });
 
@@ -63,10 +66,93 @@ async function initWebGPU() {
     }
 }
 
+// --- Graphics Setup (Triangle) ---
+
+function setupTriangleGraphics() {
+    if (!gpuDevice) {
+        console.error("Cannot setup graphics: WebGPU device not initialized.");
+        return false;
+    }
+
+    // 1. Vertex Data & Buffer
+    // Simple triangle vertices (x, y, r, g, b) - positions in clip space (-1 to 1)
+    const vertices = new Float32Array([
+        // Position      Color
+         0.0,  0.5,     1.0, 0.0, 0.0, // Top vertex, red
+        -0.5, -0.5,     0.0, 1.0, 0.0, // Bottom left, green
+         0.5, -0.5,     0.0, 0.0, 1.0, // Bottom right, blue
+    ]);
+
+    vertexBuffer = gpuDevice.createBuffer({
+        size: vertices.byteLength,
+        usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+        mappedAtCreation: true, // Allows writing data immediately
+    });
+    new Float32Array(vertexBuffer.getMappedRange()).set(vertices);
+    vertexBuffer.unmap();
+    console.log("Vertex buffer created and mapped.");
+
+    // 2. Shaders (WGSL)
+    const wgslShaders = `
+        struct VertexOutput {
+            @builtin(position) position : vec4<f32>,
+            @location(0) color : vec4<f32>,
+        };
+
+        @vertex
+        fn vs_main(@location(0) pos: vec2<f32>, @location(1) color: vec3<f32>) -> VertexOutput {
+            var output : VertexOutput;
+            output.position = vec4<f32>(pos, 0.0, 1.0);
+            output.color = vec4<f32>(color, 1.0); // Pass color to fragment shader
+            return output;
+        }
+
+        @fragment
+        fn fs_main(@location(0) color: vec4<f32>) -> @location(0) vec4<f32> {
+            return color; // Output the interpolated color
+        }
+    `;
+
+    const shaderModule = gpuDevice.createShaderModule({
+        code: wgslShaders,
+    });
+    console.log("Shader module created.");
+
+    // 3. Render Pipeline
+    pipeline = gpuDevice.createRenderPipeline({
+        layout: 'auto', // Let WebGPU infer the pipeline layout
+        vertex: {
+            module: shaderModule,
+            entryPoint: 'vs_main',
+            buffers: [ // Describe vertex buffer layout
+                {
+                    arrayStride: 5 * Float32Array.BYTES_PER_ELEMENT, // 2 pos + 3 color = 5 floats
+                    attributes: [
+                        { shaderLocation: 0, offset: 0, format: 'float32x2' }, // pos
+                        { shaderLocation: 1, offset: 2 * Float32Array.BYTES_PER_ELEMENT, format: 'float32x3' }, // color
+                    ],
+                },
+            ],
+        },
+        fragment: {
+            module: shaderModule,
+            entryPoint: 'fs_main',
+            targets: [{ format: presentationFormat }], // Use the canvas format
+        },
+        primitive: {
+            topology: 'triangle-list', // Draw triangles
+        },
+    });
+    console.log("Render pipeline created.");
+
+    return true;
+}
+
+
 // --- Canvas Setup ---
 
 /**
- * Configures a canvas for WebGPU rendering.
+ * Configures a canvas for WebGPU rendering and sets up triangle graphics.
  * @param {HTMLCanvasElement} canvas The canvas element to use.
  * @returns {boolean} True if configuration is successful, false otherwise.
  */
@@ -86,80 +172,59 @@ function configureCanvasContext(canvas) {
         return false;
     }
 
-    // Determine the preferred format for the canvas
-    // Use navigator.gpu.getPreferredCanvasFormat() for optimal performance/compatibility
     presentationFormat = navigator.gpu.getPreferredCanvasFormat();
     console.log("Preferred canvas format:", presentationFormat);
 
     canvasContext.configure({
         device: gpuDevice,
         format: presentationFormat,
-        // Optional: Alpha mode (e.g., 'premultiplied', 'opaque')
-        alphaMode: 'premultiplied' // or 'opaque'
+        alphaMode: 'premultiplied'
     });
-
     console.log("Canvas context configured successfully.");
-    return true;
+
+    // Setup triangle resources after configuring canvas (needs presentationFormat)
+    return setupTriangleGraphics();
 }
 
 
-// --- Rendering Logic (Placeholders) ---
+// --- Rendering Logic (Triangle) ---
 
 /**
- * Placeholder for the main render loop function.
+ * Renders a single frame, drawing the triangle.
  */
 function renderFrame() {
-    if (!gpuDevice || !canvasContext) {
-        console.warn("Cannot render: WebGPU device or canvas context not ready.");
+    if (!gpuDevice || !canvasContext || !pipeline || !vertexBuffer) {
+        console.warn("Cannot render: WebGPU resources not ready.");
         return;
     }
 
-    // TODO: Implement actual rendering commands
-    // 1. Get current texture from swap chain (canvas context)
-    // 2. Create command encoder
-    // 3. Create render pass descriptor (specify color attachments, depth/stencil)
-    // 4. Begin render pass
-    // 5. Set pipeline, bind groups, vertex/index buffers
-    // 6. Draw calls
-    // 7. End render pass
-    // 8. Finish command encoder
-    // 9. Submit command buffer to device queue
-
-    // Example: Clear the canvas to a color (replace with actual drawing)
     const commandEncoder = gpuDevice.createCommandEncoder();
     const textureView = canvasContext.getCurrentTexture().createView();
 
     const renderPassDescriptor = {
         colorAttachments: [{
             view: textureView,
-            clearValue: { r: 0.0, g: 0.5, b: 0.8, a: 1.0 }, // Light blue clear color
+            clearValue: { r: 0.1, g: 0.1, b: 0.1, a: 1.0 }, // Dark grey clear color
             loadOp: 'clear',
             storeOp: 'store',
         }],
     };
 
     const passEncoder = commandEncoder.beginRenderPass(renderPassDescriptor);
-    passEncoder.end(); // Nothing drawn yet
+    passEncoder.setPipeline(pipeline);
+    passEncoder.setVertexBuffer(0, vertexBuffer); // Use slot 0 for the vertex buffer
+    passEncoder.draw(3, 1, 0, 0); // Draw 3 vertices, 1 instance
+    passEncoder.end();
 
     gpuDevice.queue.submit([commandEncoder.finish()]);
-
-    // Request next frame if running an animation loop
-    // requestAnimationFrame(renderFrame);
 }
 
 // --- Utility / Export ---
 
-// Expose functions needed by Dart via JS interop.
-// We might wrap these in a class or object later for better organization.
-// For now, make them globally accessible for simplicity during setup.
-// (Consider using JSExport with Dart's js_interop for type safety later)
 window.flutter3d_webgpu = {
     initWebGPU,
     configureCanvasContext,
     renderFrame
 };
 
-console.log("flutter_3d_webgpu.js loaded.");
-
-// Automatically try to initialize on load (optional, might be better called from Dart)
-// initWebGPU();
+console.log("flutter_3d_webgpu.js loaded (with triangle drawing).");
