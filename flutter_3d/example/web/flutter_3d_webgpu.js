@@ -99,7 +99,8 @@ function setupMeshBuffer(meshId, vertices, stride, attributes) {
 
         // Ensure pipeline exists to get its layout for the bind group
         // Note: This assumes pipeline layout is compatible across meshes for now
-        if (!pipeline && !setupPipeline(attributes)) {
+        // Pass meshData to setupPipeline so it can access stride/attributes
+        if (!pipeline && !setupPipeline(meshRegistry.get(meshId))) {
              throw new Error("Failed to setup pipeline for bind group creation.");
         }
 
@@ -131,11 +132,13 @@ function setupMeshBuffer(meshId, vertices, stride, attributes) {
 
 // --- Graphics Pipeline Setup ---
 
-function setupPipeline(attributes) {
+function setupPipeline(meshData) {
     // ... (setupPipeline function remains largely the same, but uses gpuAttributes) ...
-     if (!gpuDevice || !presentationFormat) {
-        console.error("Cannot setup pipeline: WebGPU device or presentation format not ready.");
-        return false;
+    const attributes = meshData.attributes; // Get attributes from meshData
+    const stride = meshData.stride; // Get stride from meshData
+
+    if (!gpuDevice || !presentationFormat) {
+        console.error("Cannot setup pipeline: WebGPU device or presentation format not ready."); return false;
     }
     if (pipeline) return true; // Already created
 
@@ -147,14 +150,8 @@ function setupPipeline(attributes) {
         format: attr.format
     }));
     console.log("GPU Attributes for pipeline:", gpuAttributes);
-
-    // Calculate stride based on the maximum offset+size
-    const calculatedStride = attributes.reduce((stride, attr) => {
-        return Math.max(stride, attr.offset + _getFormatByteSize(attr.format));
-    }, 0);
-     // Ensure stride is multiple of 4 bytes
-    const finalStride = Math.ceil(calculatedStride / 4) * 4;
-    console.log("Calculated stride for pipeline:", finalStride);
+    // Stride is now correctly passed in via meshData
+    console.log("Using stride from meshData:", stride);
 
 
     const wgslShaders = `
@@ -204,7 +201,7 @@ function setupPipeline(attributes) {
             module: shaderModule,
             entryPoint: 'vs_main',
             buffers: [{
-                arrayStride: finalStride, // Use calculated stride
+                arrayStride: stride, // Use stride from meshData passed into setupPipeline
                 attributes: gpuAttributes,
             }],
         },
@@ -279,8 +276,9 @@ function renderMesh(meshId, transformMatrix) {
         console.warn(`Cannot render: Mesh or uniform data not found for id ${meshId}.`); return;
     }
 
-    // Ensure pipeline is created (using attributes from the mesh)
-    if (!pipeline && !setupPipeline(meshData.attributes)) {
+    // Ensure pipeline is created (pass meshData to use its attributes/stride)
+    // This will only create the pipeline once if it doesn't exist
+    if (!pipeline && !setupPipeline(meshData)) {
          console.error("Cannot render: Failed to setup pipeline."); return;
     }
 
