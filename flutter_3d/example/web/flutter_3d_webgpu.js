@@ -286,12 +286,13 @@ function renderMesh(meshId, transformMatrix) {
     // console.log(`Rendering mesh ${meshId} with matrix:`, transformMatrix); // Can be very verbose
 
     // Update the uniform buffer with the latest matrix
+    // Use the explicit buffer source signature for writeBuffer
     gpuDevice.queue.writeBuffer(
-        uniformData.buffer,
-        0, // Offset
-        transformMatrix, // Pass the Float32Array directly
-        0, // Source offset
-        transformMatrix.byteLength // Source size
+        uniformData.buffer,       // destination buffer
+        0,                        // destination offset
+        transformMatrix.buffer,   // source buffer (ArrayBuffer)
+        transformMatrix.byteOffset, // source offset
+        transformMatrix.byteLength  // source size (should be MATRIX_SIZE)
     );
 
     // --- Render Pass ---
