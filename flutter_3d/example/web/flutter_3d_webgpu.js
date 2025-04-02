@@ -97,7 +97,16 @@ function setupMeshBuffer(meshId, vertices, stride, attributes) {
         const uniformBuffer = gpuDevice.createBuffer({
             size: UNIFORM_BUFFER_SIZE, // Use padded size
             usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+            // MappedAtCreation is NOT allowed for UNIFORM usage!
         });
+
+        // Write initial identity matrix immediately after creation
+        const identityMatrix = new Float32Array([
+            1, 0, 0, 0,  0, 1, 0, 0,  0, 0, 1, 0,  0, 0, 0, 1
+        ]);
+        gpuDevice.queue.writeBuffer(
+            uniformBuffer, 0, identityMatrix.buffer, identityMatrix.byteOffset, identityMatrix.byteLength
+        );
 
         // Ensure pipeline exists to get its layout for the bind group
         // Note: This assumes pipeline layout is compatible across meshes for now
