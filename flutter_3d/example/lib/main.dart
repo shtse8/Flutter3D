@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 // Import the main plugin library
 import 'package:flutter_3d/flutter_3d.dart';
+import 'package:vector_math/vector_math_64.dart' as vm; // For Matrix4, radians
 
 // Import web-specific libraries needed for canvas setup
 import 'package:web/web.dart' as web;
@@ -24,7 +25,9 @@ class _MyAppState extends State<MyApp> {
   // Use the core API classes
   final Renderer _renderer = Renderer();
   final Scene _scene = Scene();
-  final Camera _camera = Camera(); // Basic camera for now
+  final Camera _camera = Camera();
+  Object3D? _triangleObject; // Hold reference to modify transform
+  double _rotationY = 0.0;
 
   bool _isRendererInitialized = false;
   String? _errorMessage;
@@ -115,21 +118,25 @@ class _MyAppState extends State<MyApp> {
       attributes: attributes,
     );
 
-    // Create an object and add it to the scene
+    // Create an object, store it, and add it to the scene
     // TODO: Create a basic Material class later
-    final Object3D triangleObject = Object3D(mesh: triangleMesh);
-    _scene.add(triangleObject);
+    _triangleObject = Object3D(mesh: triangleMesh);
+    _scene.add(_triangleObject!);
 
     print("Scene setup complete with one triangle object.");
   }
 
   void _requestRenderFrame() {
-    if (!mounted || !_isRendererInitialized) {
+    if (!mounted || !_isRendererInitialized || _triangleObject == null) {
       print("Render loop stopped.");
       return;
     }
 
     try {
+      // Update triangle rotation before rendering
+      _rotationY += 0.02; // Increment rotation angle
+      _triangleObject!.transform = vm.Matrix4.identity()..rotateY(_rotationY);
+
       // Call the core renderer API
       _renderer.render(_scene, _camera);
     } catch (e) {

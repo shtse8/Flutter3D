@@ -7,14 +7,20 @@ let gpuDevice = null;
 let gpuAdapter = null;
 let canvasContext = null;
 let presentationFormat = null;
-let pipeline = null; // Single pipeline for now
+let pipeline = null;
 
 // Store mesh data (buffers, counts, etc.) keyed by meshId from Dart
 const meshRegistry = new Map();
+// Store uniform buffer and bind group per object (using meshId as key for now)
+const objectUniforms = new Map();
+
+// Matrix size in bytes (4x4 float32)
+const MATRIX_SIZE = 4 * 4 * Float32Array.BYTES_PER_ELEMENT;
 
 // --- Initialization ---
 
 async function initWebGPU() {
+    // ... (initWebGPU function remains the same) ...
     if (gpuDevice) return true;
     console.log("Initializing WebGPU...");
     if (!navigator.gpu) {
@@ -33,11 +39,11 @@ async function initWebGPU() {
 
         gpuDevice.lost.then((info) => {
             console.error(`WebGPU device lost: ${info.message}`);
-            // Clear resources that depend on the device
             gpuDevice = null;
             gpuAdapter = null;
             pipeline = null;
             meshRegistry.clear();
+            objectUniforms.clear(); // Clear uniforms on device loss
             // TODO: Handle device loss more robustly
         });
 
@@ -52,15 +58,8 @@ async function initWebGPU() {
 
 // --- Mesh Buffer Setup ---
 
-/**
- * Creates or updates a GPU vertex buffer for a given mesh.
- * @param {string} meshId Unique ID for the mesh (from Dart).
- * @param {Float32Array} vertices Interleaved vertex data.
- * @param {number} stride Vertex stride in bytes.
- * @param {Array<object>} attributes Array of attribute descriptions ({ name, offset, format }).
- * @returns {string | null} The meshId if successful, null otherwise.
- */
 function setupMeshBuffer(meshId, vertices, stride, attributes) {
+    // ... (setupMeshBuffer function remains largely the same) ...
     if (!gpuDevice) {
         console.error("Cannot setup mesh buffer: WebGPU device not initialized.");
         return null;
@@ -70,9 +69,7 @@ function setupMeshBuffer(meshId, vertices, stride, attributes) {
     console.log(`  Attributes:`, attributes);
 
     try {
-        // TODO: Handle buffer updates vs creation if meshId already exists
         if (meshRegistry.has(meshId)) {
-            // For now, just recreate if it exists
             console.warn(`Mesh ${meshId} already exists, recreating buffer.`);
             // TODO: Destroy old buffer? meshRegistry.get(meshId).buffer.destroy();
         }
@@ -87,19 +84,46 @@ function setupMeshBuffer(meshId, vertices, stride, attributes) {
 
         const vertexCount = vertices.length / (stride / Float32Array.BYTES_PER_ELEMENT);
 
-        // Store buffer and related info
         meshRegistry.set(meshId, {
             buffer: vertexBuffer,
             vertexCount: vertexCount,
             stride: stride,
-            attributes: attributes // Store attributes for potential pipeline recreation later
+            attributes: attributes
         });
 
-        console.log(`Buffer created for mesh ${meshId}, Vertex count: ${vertexCount}`);
-        return meshId; // Return the ID as the handle for now
+        // --- Also create uniform buffer and bind group for this object ---
+        const uniformBuffer = gpuDevice.createBuffer({
+            size: MATRIX_SIZE,
+            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+        });
+
+        // Ensure pipeline exists to get its layout for the bind group
+        // Note: This assumes pipeline layout is compatible across meshes for now
+        if (!pipeline && !setupPipeline(attributes)) {
+             throw new Error("Failed to setup pipeline for bind group creation.");
+        }
+
+        const bindGroup = gpuDevice.createBindGroup({
+            layout: pipeline.getBindGroupLayout(0), // Use layout from pipeline
+            entries: [{
+                binding: 0,
+                resource: { buffer: uniformBuffer },
+            }],
+        });
+
+        objectUniforms.set(meshId, {
+            buffer: uniformBuffer,
+            bindGroup: bindGroup,
+            // Store matrix data? Or expect it to be passed in renderMesh?
+            // Let's expect it in renderMesh for now.
+        });
+        // ----------------------------------------------------------------
+
+        console.log(`Buffer and uniforms created for mesh ${meshId}, Vertex count: ${vertexCount}`);
+        return meshId;
 
     } catch (error) {
-        console.error(`Error setting up buffer for mesh ${meshId}:`, error);
+        console.error(`Error setting up buffer/uniforms for mesh ${meshId}:`, error);
         return null;
     }
 }
@@ -107,9 +131,8 @@ function setupMeshBuffer(meshId, vertices, stride, attributes) {
 
 // --- Graphics Pipeline Setup ---
 
-// Creates the render pipeline (assuming vertex format won't change often for now)
-// TODO: Make pipeline creation more dynamic based on material/shader later
 function setupPipeline(attributes) {
+    // ... (setupPipeline function remains largely the same, but uses gpuAttributes) ...
      if (!gpuDevice || !presentationFormat) {
         console.error("Cannot setup pipeline: WebGPU device or presentation format not ready.");
         return false;
@@ -118,24 +141,37 @@ function setupPipeline(attributes) {
 
     console.log("Setting up render pipeline...");
 
-    // Convert Dart attributes to WebGPU buffer layout
     const gpuAttributes = attributes.map((attr, index) => ({
-        shaderLocation: index, // Assuming shader locations 0, 1, ...
+        shaderLocation: attr.name === 'position' ? 0 : (attr.name === 'color' ? 1 : index),
         offset: attr.offset,
         format: attr.format
     }));
+    console.log("GPU Attributes for pipeline:", gpuAttributes);
+
+    // Calculate stride based on the maximum offset+size
+    const calculatedStride = attributes.reduce((stride, attr) => {
+        return Math.max(stride, attr.offset + _getFormatByteSize(attr.format));
+    }, 0);
+     // Ensure stride is multiple of 4 bytes
+    const finalStride = Math.ceil(calculatedStride / 4) * 4;
+    console.log("Calculated stride for pipeline:", finalStride);
+
 
     const wgslShaders = `
+        struct Uniforms {
+            modelViewProjectionMatrix : mat4x4<f32>,
+        };
+        @group(0) @binding(0) var<uniform> uniforms : Uniforms;
+
         struct VertexOutput {
             @builtin(position) position : vec4<f32>,
-            @location(0) color : vec4<f32>, // Assuming color is always location 0 for now
+            @location(0) color : vec4<f32>,
         };
 
-        // TODO: Make shader inputs dynamic based on attributes
         @vertex
         fn vs_main(@location(0) pos: vec2<f32>, @location(1) color: vec3<f32>) -> VertexOutput {
             var output : VertexOutput;
-            output.position = vec4<f32>(pos, 0.0, 1.0);
+            output.position = uniforms.modelViewProjectionMatrix * vec4<f32>(pos, 0.0, 1.0);
             output.color = vec4<f32>(color, 1.0);
             return output;
         }
@@ -148,13 +184,27 @@ function setupPipeline(attributes) {
 
     const shaderModule = gpuDevice.createShaderModule({ code: wgslShaders });
 
+    // Define bind group layout explicitly
+     const bindGroupLayout = gpuDevice.createBindGroupLayout({
+        entries: [{
+            binding: 0,
+            visibility: GPUShaderStage.VERTEX,
+            buffer: { type: 'uniform' },
+        }],
+    });
+
+    const pipelineLayout = gpuDevice.createPipelineLayout({
+        bindGroupLayouts: [bindGroupLayout], // Use the explicit layout
+    });
+
+
     pipeline = gpuDevice.createRenderPipeline({
-        layout: 'auto',
+        layout: pipelineLayout, // Use the created layout
         vertex: {
             module: shaderModule,
             entryPoint: 'vs_main',
             buffers: [{
-                arrayStride: attributes.reduce((maxOffset, attr) => Math.max(maxOffset, attr.offset + _getFormatByteSize(attr.format)), 0), // Calculate stride based on attributes
+                arrayStride: finalStride, // Use calculated stride
                 attributes: gpuAttributes,
             }],
         },
@@ -171,11 +221,11 @@ function setupPipeline(attributes) {
 
 // Helper to get byte size of a format (simplified)
 function _getFormatByteSize(format) {
+    // ... (remains the same) ...
     switch(format) {
         case 'float32x2': return 2 * 4;
         case 'float32x3': return 3 * 4;
         case 'float32x4': return 4 * 4;
-        // Add other formats as needed
         default: return 0;
     }
 }
@@ -184,6 +234,7 @@ function _getFormatByteSize(format) {
 // --- Canvas Setup ---
 
 function configureCanvasContext(canvas) {
+    // ... (remains the same, no longer calls setupPipeline directly) ...
     if (!gpuDevice) {
         console.error("WebGPU device not initialized."); return false;
     }
@@ -205,10 +256,6 @@ function configureCanvasContext(canvas) {
         alphaMode: 'premultiplied'
     });
     console.log("Canvas context configured.");
-
-    // Pipeline setup depends on attributes, defer until first mesh is set up?
-    // Or create a default pipeline here? Let's defer for now.
-
     return true;
 }
 
@@ -216,32 +263,43 @@ function configureCanvasContext(canvas) {
 // --- Rendering Logic ---
 
 /**
- * Renders a mesh identified by meshId.
- * @param {string} meshId The ID of the mesh to render (must match one from setupMeshBuffer).
+ * Renders a mesh identified by meshId using its transform matrix.
+ * @param {string} meshId The ID of the mesh to render.
+ * @param {Float32Array} transformMatrix The 4x4 transformation matrix.
  */
-function renderMesh(meshId) {
+function renderMesh(meshId, transformMatrix) {
     if (!gpuDevice || !canvasContext) {
         console.warn("Cannot render: WebGPU device or canvas context not ready."); return;
     }
 
     const meshData = meshRegistry.get(meshId);
-    if (!meshData) {
-        console.warn(`Cannot render: Mesh data not found for id ${meshId}.`); return;
+    const uniformData = objectUniforms.get(meshId);
+
+    if (!meshData || !uniformData) {
+        console.warn(`Cannot render: Mesh or uniform data not found for id ${meshId}.`); return;
     }
 
     // Ensure pipeline is created (using attributes from the mesh)
-    // TODO: This is inefficient if multiple meshes share the same attributes/pipeline
-    if (!setupPipeline(meshData.attributes)) {
+    if (!pipeline && !setupPipeline(meshData.attributes)) {
          console.error("Cannot render: Failed to setup pipeline."); return;
     }
 
+    // Update the uniform buffer with the latest matrix
+    gpuDevice.queue.writeBuffer(
+        uniformData.buffer,
+        0, // Offset
+        transformMatrix.buffer,
+        transformMatrix.byteOffset,
+        transformMatrix.byteLength
+    );
+
+    // --- Render Pass ---
     const commandEncoder = gpuDevice.createCommandEncoder();
     const textureView = canvasContext.getCurrentTexture().createView();
-
     const renderPassDescriptor = {
         colorAttachments: [{
             view: textureView,
-            clearValue: { r: 0.1, g: 0.1, b: 0.1, a: 1.0 }, // Dark grey clear
+            clearValue: { r: 0.1, g: 0.1, b: 0.1, a: 1.0 },
             loadOp: 'clear',
             storeOp: 'store',
         }],
@@ -249,8 +307,9 @@ function renderMesh(meshId) {
 
     const passEncoder = commandEncoder.beginRenderPass(renderPassDescriptor);
     passEncoder.setPipeline(pipeline);
-    passEncoder.setVertexBuffer(0, meshData.buffer); // Use the buffer for this meshId
-    passEncoder.draw(meshData.vertexCount, 1, 0, 0); // Use vertex count for this meshId
+    passEncoder.setBindGroup(0, uniformData.bindGroup); // Set the bind group for uniforms
+    passEncoder.setVertexBuffer(0, meshData.buffer);
+    passEncoder.draw(meshData.vertexCount, 1, 0, 0);
     passEncoder.end();
 
     gpuDevice.queue.submit([commandEncoder.finish()]);
@@ -261,8 +320,8 @@ function renderMesh(meshId) {
 window.flutter3d_webgpu = {
     initWebGPU,
     configureCanvasContext,
-    setupMeshBuffer, // Expose the new function
-    renderMesh // Expose the renamed function
+    setupMeshBuffer,
+    renderMesh
 };
 
-console.log("flutter_3d_webgpu.js loaded (with mesh setup and renderMesh).");
+console.log("flutter_3d_webgpu.js loaded (with transforms).");

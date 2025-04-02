@@ -2,8 +2,8 @@
 
 ## Current Status
 
-*   **Overall:** Basic Web/WebGPU triangle rendering working.
-*   **Date:** 2025-04-02
+*   **Overall:** Core Dart API connected to WebGPU backend; triangle rendering via API working. Mesh upload optimized.
+*   **Date:** 2025-04-03
 
 ## What Works
 
@@ -12,15 +12,17 @@
 *   Flutter plugin project structure created (`flutter_3d/`).
 *   Initial Dart API classes defined (`flutter_3d/lib/flutter_3d.dart`).
 *   Placeholder test files updated.
-*   Created JS backend (`flutter_3d/example/web/flutter_3d_webgpu.js`) with triangle rendering logic.
-*   Created Dart web interop bridge (`flutter_3d/lib/flutter_3d_web.dart`).
-*   Updated example app (`flutter_3d/example/`) to load JS and render triangle via WebGPU.
-
+*   Created JS backend (`flutter_3d/example/web/flutter_3d_webgpu.js`) with mesh setup and rendering logic.
+*   Created Dart web interop bridge (`flutter_3d/lib/flutter_3d_web.dart`) and fixed `setProperty` usage.
+*   Updated core Dart API (`flutter_3d/lib/flutter_3d.dart`) to handle mesh data and drive rendering.
+*   Added stub files for conditional imports.
+*   Updated example app (`flutter_3d/example/`) to use core Dart API for rendering.
+*   Optimized mesh buffer uploads in `Renderer`.
 ## What's Left To Build (High Level)
 
 *   Dart API **implementation** (connecting to web backend).
-*   Platform bridge implementation (connecting Dart API to JS-interop).
-*   Drawing logic for more complex meshes.
+*   Implement transformations (matrices).
+*   Implement texture mapping.
 *   Native backend adapters (starting with Web/WebGPU).
 *   Shader handling system.
 *   Asset loading.

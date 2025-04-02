@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 import 'dart:js_interop';
-import 'dart:js_interop_unsafe'; // Import for setProperty extension method
+import 'dart:js_interop_unsafe';
+import 'package:vector_math/vector_math_64.dart'; // Import for Matrix4
 
 // Conditional import for web-specific types
 import 'flutter_3d_web.dart'
@@ -55,8 +56,8 @@ class Renderer {
           _uploadedMeshHashes.add(meshHash);
         }
 
-        // Render the mesh using the platform implementation
-        _platformRenderer!.renderMesh(object.mesh!);
+        // Render the mesh using the platform implementation, passing its transform
+        _platformRenderer!.renderMesh(mesh, object.transform);
       }
     }
   }
@@ -96,11 +97,11 @@ class Scene {
 class Object3D {
   Mesh? mesh;
   Material? material;
-  // TODO: Add transformations (position, rotation, scale) - likely using vector_math Matrix4
+  Matrix4 transform = Matrix4.identity(); // Transformation matrix
 
   Object3D({this.mesh, this.material});
 
-  // TODO: Add methods for updating transformations?
+  // TODO: Add methods for updating transformations (translate, rotate, scale)?
 }
 
 /// Describes a single vertex attribute within a mesh buffer.

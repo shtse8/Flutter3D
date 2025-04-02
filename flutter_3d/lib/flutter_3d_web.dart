@@ -3,8 +3,8 @@ import 'dart:js_interop';
 import 'dart:js_interop_unsafe'; // Import for setProperty extension method
 
 import 'package:flutter_web_plugins/flutter_web_plugins.dart';
-import 'package:web/web.dart'
-    as web; // For accessing browser APIs like navigator, canvas
+import 'package:web/web.dart' as web;
+import 'package:vector_math/vector_math_64.dart'; // Import for Matrix4
 
 // Import the main library file to potentially access shared Dart types/interfaces later
 import 'flutter_3d.dart'; // Access to Renderer, Scene etc. defined in the main lib
@@ -66,7 +66,7 @@ extension Flutter3DWebGPUJSMethods on Flutter3DWebGPUJS {
   ); // Returns buffer handle or null
 
   @JS('renderMesh')
-  external void renderMesh(String meshId); // Accepts meshId
+  external void renderMesh(String meshId, JSTypedArray transformMatrix); // Accepts meshId and matrix
 }
 
 // Helper to access the global object
@@ -182,17 +182,18 @@ class Flutter3dWeb {
 
   /// Calls the JavaScript renderMesh function for a specific mesh.
   /// Assumes setupMesh has already been called for this mesh.
-  void renderMesh(/* dynamic bufferHandle, */ Mesh mesh) {
-    // Pass mesh for now
+  void renderMesh(Mesh mesh, Matrix4 transform) {
     final jsObject = _flutter3dWebGPU;
     if (jsObject == null) {
       print('Error: flutter_3d_webgpu.js script not loaded.');
       return;
     }
     try {
-      // Pass the meshId to the JS renderMesh function
+      // Pass meshId and transform matrix to the JS renderMesh function
       final meshId = mesh.hashCode.toString();
-      jsObject.renderMesh(meshId);
+      final jsMatrix = transform.storage.toJS; // Convert Matrix4 storage
+
+      jsObject.renderMesh(meshId, jsMatrix);
       // print('Dart: renderMesh called.');
     } catch (e) {
       print('Dart: Error calling renderMesh: $e');
