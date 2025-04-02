@@ -53,6 +53,11 @@ flutter:
         fileName: flutter_3d_web.dart
 
   # To add assets to your plugin package, add an assets section, like this:
+  assets:
+    # Make the JS file(s) in the web directory available as assets
+    - web/
+
+  # To add assets to your plugin package, add an assets section, like this:
   # assets:
   #   - images/a_dot_burr.jpeg
   #   - images/a_dot_ham.jpeg
