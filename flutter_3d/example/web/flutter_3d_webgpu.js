@@ -312,6 +312,9 @@ function renderMesh(meshId, transformMatrix) {
 
     const passEncoder = commandEncoder.beginRenderPass(renderPassDescriptor);
     passEncoder.setPipeline(pipeline);
+    // Explicitly set viewport (though often defaults correctly)
+    const canvas = canvasContext.canvas;
+    passEncoder.setViewport(0, 0, canvas.width, canvas.height, 0, 1);
     passEncoder.setBindGroup(0, uniformData.bindGroup); // Set the bind group for uniforms
     passEncoder.setVertexBuffer(0, meshData.buffer);
     passEncoder.draw(meshData.vertexCount, 1, 0, 0);
