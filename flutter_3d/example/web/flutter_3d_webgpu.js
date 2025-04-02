@@ -179,19 +179,16 @@ function setupPipeline(meshData) {
         @vertex
         fn vs_main(@location(0) pos: vec2<f32>, @location(1) color: vec3<f32>) -> VertexOutput {
             var output : VertexOutput;
-            // Multiply position by model-view-projection matrix
-            output.position = uniforms.modelViewProjectionMatrix * vec4<f32>(pos, 0.0, 1.0);
+            // TEMPORARY DEBUG: Output raw position, ignoring matrix
+            output.position = vec4<f32>(pos, 0.0, 1.0);
+            // output.position = uniforms.modelViewProjectionMatrix * vec4<f32>(pos, 0.0, 1.0);
             output.color = vec4<f32>(color, 1.0);
             return output;
         }
 
         @fragment
         fn fs_main(@location(0) color: vec4<f32>) -> @location(0) vec4<f32> {
-            // DEBUG: Output first element of matrix as red color
-            // to check if uniform buffer is accessible.
-            let matrix_val = uniforms.modelViewProjectionMatrix[0][0];
-            return vec4(matrix_val, 0.0, 0.0, 1.0);
-            // return color; // Original color passthrough
+            return color; // Original color passthrough
         }
     `;
 
