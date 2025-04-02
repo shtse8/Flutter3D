@@ -15,6 +15,7 @@ class Renderer {
   Flutter3dWeb? _platformRenderer; // Make nullable
 
   bool _isInitialized = false;
+  final Set<int> _uploadedMeshHashes = {}; // Track uploaded meshes
 
   /// Initializes the renderer, potentially associating it with a canvas.
   /// For web, this requires the canvas element.
@@ -43,9 +44,16 @@ class Renderer {
     // buffer reuse, etc.
     for (final object in scene.children) {
       if (object.mesh != null) {
-        // Ensure the GPU buffer is ready for this mesh
-        // TODO: Handle buffer handle/ID properly
-        _platformRenderer!.setupMesh(object.mesh!);
+        final mesh = object.mesh!;
+        final meshHash = mesh.hashCode;
+
+        // Only upload mesh data if we haven't seen this mesh before
+        if (!_uploadedMeshHashes.contains(meshHash)) {
+          print("Renderer: Uploading mesh ${meshHash}...");
+          // TODO: Handle buffer handle/ID properly
+          _platformRenderer!.setupMesh(mesh);
+          _uploadedMeshHashes.add(meshHash);
+        }
 
         // Render the mesh using the platform implementation
         _platformRenderer!.renderMesh(object.mesh!);
@@ -56,6 +64,8 @@ class Renderer {
   /// Disposes of the renderer and releases resources.
   void dispose() {
     // TODO: Call dispose on _platformRenderer if it exists and implements it.
+    // TODO: Call dispose on _platformRenderer if it exists and implements it.
+    _uploadedMeshHashes.clear(); // Clear tracked meshes
     _isInitialized = false;
     _platformRenderer = null;
   }
