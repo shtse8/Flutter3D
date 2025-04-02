@@ -26,8 +26,8 @@ class _MyAppState extends State<MyApp> {
   final Renderer _renderer = Renderer();
   final Scene _scene = Scene();
   final Camera _camera = Camera();
-  Object3D? _triangleObject; // Hold reference to modify transform
-  double _rotationY = 0.0;
+  Object3D? _triangleObject;
+  // double _rotationY = 0.0; // No longer rotating
 
   bool _isRendererInitialized = false;
   String? _errorMessage;
@@ -133,9 +133,10 @@ class _MyAppState extends State<MyApp> {
     }
 
     try {
-      // Update triangle rotation before rendering
-      _rotationY += 0.02; // Increment rotation angle
-      _triangleObject!.transform = vm.Matrix4.identity()..rotateY(_rotationY);
+      // Apply a static translation matrix for debugging
+      _triangleObject!.transform =
+          vm.Matrix4.identity()
+            ..translate(0.3, 0.2, 0.0); // Translate right and up slightly
 
       // Call the core renderer API
       _renderer.render(_scene, _camera);

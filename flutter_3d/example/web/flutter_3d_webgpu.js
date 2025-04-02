@@ -179,9 +179,8 @@ function setupPipeline(meshData) {
         @vertex
         fn vs_main(@location(0) pos: vec2<f32>, @location(1) color: vec3<f32>) -> VertexOutput {
             var output : VertexOutput;
-            // TEMPORARY DEBUG: Output raw position, ignoring matrix
-            output.position = vec4<f32>(pos, 0.0, 1.0);
-            // output.position = uniforms.modelViewProjectionMatrix * vec4<f32>(pos, 0.0, 1.0);
+            // Multiply position by model-view-projection matrix
+            output.position = uniforms.modelViewProjectionMatrix * vec4<f32>(pos, 0.0, 1.0);
             output.color = vec4<f32>(color, 1.0);
             return output;
         }
