@@ -284,7 +284,7 @@ function renderMesh(meshId, transformMatrix) {
     }
 
     // Log the received matrix for debugging
-    // console.log(`Rendering mesh ${meshId} with matrix:`, transformMatrix); // Can be very verbose
+    console.log(`JS: Rendering mesh ${meshId} with matrix:`, transformMatrix); // Can be very verbose
 
     // Update the uniform buffer with the latest matrix
     // Use the explicit buffer source signature for writeBuffer
