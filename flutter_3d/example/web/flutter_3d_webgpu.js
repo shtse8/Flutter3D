@@ -187,7 +187,11 @@ function setupPipeline(meshData) {
 
         @fragment
         fn fs_main(@location(0) color: vec4<f32>) -> @location(0) vec4<f32> {
-            return color;
+            // DEBUG: Output first element of matrix as red color
+            // to check if uniform buffer is accessible.
+            let matrix_val = uniforms.modelViewProjectionMatrix[0][0];
+            return vec4(matrix_val, 0.0, 0.0, 1.0);
+            // return color; // Original color passthrough
         }
     `;
 
