@@ -15,7 +15,9 @@ const meshRegistry = new Map();
 const objectUniforms = new Map();
 
 // Matrix size in bytes (4x4 float32)
-const MATRIX_SIZE = 4 * 4 * Float32Array.BYTES_PER_ELEMENT;
+const MATRIX_SIZE = 4 * 4 * Float32Array.BYTES_PER_ELEMENT; // 64 bytes
+// Pad buffer size to 256 bytes for potential alignment requirements
+const UNIFORM_BUFFER_SIZE = Math.ceil(MATRIX_SIZE / 256) * 256; // Should be 256
 
 // --- Initialization ---
 
@@ -93,7 +95,7 @@ function setupMeshBuffer(meshId, vertices, stride, attributes) {
 
         // --- Also create uniform buffer and bind group for this object ---
         const uniformBuffer = gpuDevice.createBuffer({
-            size: MATRIX_SIZE,
+            size: UNIFORM_BUFFER_SIZE, // Use padded size
             usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
         });
 
