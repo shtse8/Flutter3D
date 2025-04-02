@@ -282,13 +282,16 @@ function renderMesh(meshId, transformMatrix) {
          console.error("Cannot render: Failed to setup pipeline."); return;
     }
 
+    // Log the received matrix for debugging
+    // console.log(`Rendering mesh ${meshId} with matrix:`, transformMatrix); // Can be very verbose
+
     // Update the uniform buffer with the latest matrix
     gpuDevice.queue.writeBuffer(
         uniformData.buffer,
         0, // Offset
-        transformMatrix.buffer,
-        transformMatrix.byteOffset,
-        transformMatrix.byteLength
+        transformMatrix, // Pass the Float32Array directly
+        0, // Source offset
+        transformMatrix.byteLength // Source size
     );
 
     // --- Render Pass ---
