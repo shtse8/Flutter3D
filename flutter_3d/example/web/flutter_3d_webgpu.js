@@ -201,7 +201,7 @@ function setupPipeline(meshData) {
      const bindGroupLayout = gpuDevice.createBindGroupLayout({
         entries: [{
             binding: 0,
-            visibility: GPUShaderStage.VERTEX,
+            visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, // Add Fragment visibility
             buffer: { type: 'uniform' },
         }],
     });
