@@ -16,7 +16,9 @@ class Renderer {
   Flutter3dWeb? _platformRenderer; // Make nullable
 
   bool _isInitialized = false;
-  final Set<int> _uploadedMeshHashes = {}; // Track uploaded meshes
+  final Set<int> _uploadedMeshHashes = {};
+  final Set<String> _setupObjectIds =
+      {}; // Track setup objects (using mesh hash as ID for now)
 
   /// Initializes the renderer, potentially associating it with a canvas.
   /// For web, this requires the canvas element.
@@ -48,13 +50,28 @@ class Renderer {
         final mesh = object.mesh!;
         final meshHash = mesh.hashCode;
 
-        // Only upload mesh data if we haven't seen this mesh before
-        if (!_uploadedMeshHashes.contains(meshHash)) {
-          print("Renderer: Uploading mesh ${meshHash}...");
-          // TODO: Handle buffer handle/ID properly
-          // Call setupObject asynchronously, but don't await here in render loop
-          _platformRenderer!.setupObject(object);
-          _uploadedMeshHashes.add(meshHash);
+        // Use mesh hash as object ID for now
+        final objectId = meshHash.toString();
+
+        // Setup object resources (mesh, texture, uniforms, bind group) if not already done
+        // This is async due to texture loading. We fire-and-forget here, which isn't ideal.
+        // Render calls might fail until setup completes.
+        if (!_setupObjectIds.contains(objectId)) {
+          print("Renderer: Setting up object ${objectId}...");
+          // Add to set immediately to prevent repeated calls, even though setup might fail later
+          _setupObjectIds.add(objectId);
+          // Fire-and-forget async setup
+          _platformRenderer!.setupObject(object).then((id) {
+            if (id != null) {
+              print("Renderer: Object ${id} setup complete.");
+              // If setup succeeded, we could potentially remove from a "pending" set
+              // and add to a "completed" set for more robust tracking.
+            } else {
+              print("Renderer: Object ${objectId} setup failed.");
+              // Remove from set if setup failed? Or allow retry? Needs strategy.
+              _setupObjectIds.remove(objectId);
+            }
+          });
         }
 
         // Log the matrix before sending
@@ -72,7 +89,8 @@ class Renderer {
   void dispose() {
     // TODO: Call dispose on _platformRenderer if it exists and implements it.
     // TODO: Call dispose on _platformRenderer if it exists and implements it.
-    _uploadedMeshHashes.clear(); // Clear tracked meshes
+    _uploadedMeshHashes.clear();
+    _setupObjectIds.clear(); // Clear tracked objects
     _isInitialized = false;
     _platformRenderer = null;
   }
