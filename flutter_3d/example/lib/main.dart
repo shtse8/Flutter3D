@@ -175,7 +175,7 @@ class _MyAppState extends State<MyApp> with SingleTickerProviderStateMixin {
     // Create texture and material using prefix
     final f3d.Texture sampleTexture = f3d.Texture(
       source:
-          'https://upload.wikimedia.org/wikipedia/commons/thumb/4/4f/SVG_Logo.svg/512px-SVG_Logo.svg.png',
+          'https://webgpufundamentals.org/webgpu/resources/images/f-texture.png',
     );
     final f3d.Material triangleMaterial = f3d.Material(map: sampleTexture);
 
