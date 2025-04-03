@@ -202,9 +202,15 @@ function createDummyTextureView() {
             usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
         });
         const data = new Uint8Array([255, 255, 255, 255]); // White pixel
-        gpuDevice.queue.writeTexture({ texture }, data, { bytesPerRow: 4 }, [1, 1]);
-        dummyTextureView = texture.createView();
-        console.log("Created dummy texture view.");
+        try {
+            gpuDevice.queue.writeTexture({ texture }, data, { bytesPerRow: 4 }, [1, 1]);
+            dummyTextureView = texture.createView();
+            console.log("Created and wrote dummy texture view successfully.");
+        } catch (e) {
+            console.error("Error writing to dummy texture:", e);
+            // Potentially return null or throw? For now, log and continue.
+            dummyTextureView = null; // Ensure it's null if write failed
+        }
     }
     return dummyTextureView;
 }
