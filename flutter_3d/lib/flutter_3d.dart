@@ -61,11 +61,8 @@ class Renderer {
         //   "Renderer: Sending transform for mesh $meshHash:\n${object.transform}",
         // ); // Can be verbose
 
-        // Transpose the matrix before sending (for debugging layout issues)
-        final transposedMatrix = object.transform.clone()..transpose();
-
         // Render the mesh using the platform implementation, passing its transform
-        _platformRenderer!.renderMesh(mesh, transposedMatrix);
+        _platformRenderer!.renderMesh(mesh, object.transform);
       }
     }
   }
