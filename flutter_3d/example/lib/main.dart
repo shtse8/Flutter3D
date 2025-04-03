@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:typed_data'; // Needed for Float32List
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart'; // Needed for Ticker
 
 // Import the main plugin library with a prefix
 import 'package:flutter_3d/flutter_3d.dart' as f3d;
@@ -21,17 +22,17 @@ class MyApp extends StatefulWidget {
   State<MyApp> createState() => _MyAppState();
 }
 
-class _MyAppState extends State<MyApp> {
+// Add SingleTickerProviderStateMixin
+class _MyAppState extends State<MyApp> with SingleTickerProviderStateMixin {
   // Use the core API classes with prefix
   final f3d.Renderer _renderer = f3d.Renderer();
   final f3d.Scene _scene = f3d.Scene();
   final f3d.Camera _camera = f3d.Camera();
   f3d.Object3D? _triangleObject;
-  // double _rotationY = 0.0; // No longer rotating
 
   bool _isRendererInitialized = false;
   String? _errorMessage;
-  // Timer? _renderLoopTimer; // We'll use addPostFrameCallback
+  Ticker? _ticker; // Use Ticker for render loop
 
   // Unique ID for the platform view
   final String _viewId = 'flutter3d-canvas';
@@ -39,19 +40,50 @@ class _MyAppState extends State<MyApp> {
   @override
   void initState() {
     super.initState();
+    // Create ticker
+    _ticker = createTicker(_onTick);
     _initGraphics();
   }
 
   @override
   void dispose() {
+    _ticker?.stop(); // Stop ticker
+    _ticker?.dispose();
     _renderer.dispose(); // Dispose the renderer
-    // Render loop should stop automatically due to `mounted` check
     super.dispose();
+  }
+
+  // Ticker callback function
+  void _onTick(Duration elapsed) {
+    if (!mounted || !_isRendererInitialized || _triangleObject == null) {
+      _ticker?.stop();
+      print("Render loop stopped.");
+      return;
+    }
+
+    try {
+      // Apply a static translation matrix for debugging
+      // If we wanted rotation back:
+      // double rotationY = elapsed.inMilliseconds * 0.001; // Rotate based on time
+      // _triangleObject!.transform = vm.Matrix4.identity()..rotateY(rotationY);
+
+      _triangleObject!.transform =
+          vm.Matrix4.identity()..translate(0.3, 0.2, 0.0); // Static translation
+
+      // Call the core renderer API
+      _renderer.render(_scene, _camera);
+    } catch (e) {
+      print("Dart: Error calling renderer.render: $e");
+      setState(() {
+        _errorMessage = "Error during rendering: $e";
+      });
+      _ticker?.stop(); // Stop loop on error
+    }
   }
 
   Future<void> _initGraphics() async {
     try {
-      // --- Canvas Setup (remains the same) ---
+      // --- Canvas Setup ---
       final web.HTMLCanvasElement canvas =
           web.HTMLCanvasElement()
             ..id = _viewId
@@ -82,8 +114,9 @@ class _MyAppState extends State<MyApp> {
         _isRendererInitialized = true;
       });
 
-      // Start the render loop
-      _startRenderLoop();
+      // Start the render loop using Ticker
+      _ticker?.start();
+      print("Ticker render loop started.");
     } catch (e) {
       print('Error during graphics initialization: $e');
       setState(() {
@@ -94,23 +127,31 @@ class _MyAppState extends State<MyApp> {
 
   void _setupScene() {
     // Define triangle mesh data using the API
-    // Add UV coordinates (s, t)
     final Float32List vertices = Float32List.fromList([
-      // Position      Color          UV
-      0.0, 0.5, 1.0, 1.0, 1.0, 0.5, 1.0, // Top vertex, white, top-center UV
-      -0.5, -0.5, 1.0, 1.0, 1.0, 0.0, 0.0, // Bottom left, white, bottom-left UV
+      0.0,
+      0.5,
+      1.0,
+      1.0,
+      1.0,
+      0.5,
+      1.0,
+      -0.5,
+      -0.5,
+      1.0,
+      1.0,
+      1.0,
+      0.0,
+      0.0,
       0.5,
       -0.5,
       1.0,
       1.0,
       1.0,
       1.0,
-      0.0, // Bottom right, white, bottom-right UV
+      0.0,
     ]);
-    const int vertexStride =
-        7 * Float32List.bytesPerElement; // 2 pos + 3 color + 2 uv = 7 floats
+    const int vertexStride = 7 * Float32List.bytesPerElement;
     final List<f3d.VertexAttribute> attributes = [
-      // Use prefix
       f3d.VertexAttribute(name: 'position', offset: 0, format: 'float32x2'),
       f3d.VertexAttribute(
         name: 'color',
@@ -121,11 +162,10 @@ class _MyAppState extends State<MyApp> {
         name: 'uv',
         offset: 5 * Float32List.bytesPerElement,
         format: 'float32x2',
-      ), // Add UV attribute
+      ),
     ];
 
     final f3d.Mesh triangleMesh = f3d.Mesh(
-      // Use prefix
       vertices: vertices,
       vertexCount: 3,
       vertexStride: vertexStride,
@@ -143,46 +183,13 @@ class _MyAppState extends State<MyApp> {
     _triangleObject = f3d.Object3D(
       mesh: triangleMesh,
       material: triangleMaterial,
-    ); // Use prefix
+    );
     _scene.add(_triangleObject!);
 
     print("Scene setup complete with one triangle object.");
   }
 
-  void _requestRenderFrame() {
-    if (!mounted || !_isRendererInitialized || _triangleObject == null) {
-      print("Render loop stopped.");
-      return;
-    }
-
-    try {
-      // Apply a static translation matrix for debugging
-      _triangleObject!.transform =
-          vm.Matrix4.identity()
-            ..translate(0.3, 0.2, 0.0); // Translate right and up slightly
-
-      // Call the core renderer API
-      _renderer.render(_scene, _camera);
-    } catch (e) {
-      print("Dart: Error calling renderer.render: $e");
-      setState(() {
-        _errorMessage = "Error during rendering: $e";
-      });
-      return; // Stop loop on error
-    }
-
-    // Request the next frame
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && _isRendererInitialized) {
-        _requestRenderFrame();
-      }
-    });
-  }
-
-  void _startRenderLoop() {
-    print("Starting render loop using Renderer API...");
-    WidgetsBinding.instance.addPostFrameCallback((_) => _requestRenderFrame());
-  }
+  // Removed _requestRenderFrame and _startRenderLoop (replaced by Ticker)
 
   @override
   Widget build(BuildContext context) {
@@ -196,10 +203,8 @@ class _MyAppState extends State<MyApp> {
         ),
       );
     } else if (_isRendererInitialized) {
-      // Display the HtmlElementView containing the canvas
       bodyContent = HtmlElementView(viewType: _viewId);
     } else {
-      // Show a loading indicator while initializing
       bodyContent = const Center(child: CircularProgressIndicator());
     }
 
