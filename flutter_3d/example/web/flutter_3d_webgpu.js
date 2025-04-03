@@ -156,7 +156,7 @@ async function setupObject(objectId, vertices, stride, attributes, textureUrl) {
              throw new Error("Failed to setup pipeline for bind group creation.");
         }
 
-        // --- Bind Group ---
+        // --- Bind Group (Only Uniform Buffer for now) ---
         const bindGroup = gpuDevice.createBindGroup({
             layout: pipeline.getBindGroupLayout(0), // Use layout from pipeline
             entries: [
@@ -164,15 +164,7 @@ async function setupObject(objectId, vertices, stride, attributes, textureUrl) {
                     binding: 0,
                     resource: { buffer: uniformBuffer },
                 },
-                { // Binding 1: Texture View
-                    binding: 1,
-                    // Use loaded texture view or a default/dummy one
-                    resource: gpuTexture ? gpuTexture.createView() : createDummyTextureView(),
-                },
-                 { // Binding 2: Sampler
-                    binding: 2,
-                    resource: defaultSampler, // Use the default sampler
-                },
+                // Remove texture/sampler entries for now
             ],
         });
 
@@ -267,33 +259,24 @@ function setupPipeline(meshData) {
 
         @fragment
         fn fs_main(fragData: VertexOutput) -> @location(0) vec4<f32> {
-            // DEBUG: Output constant color to check if pipeline runs with texture bindings
-            return vec4(1.0, 0.0, 1.0, 1.0); // Magenta
+            // Sample the texture using the interpolated UVs
             // let texColor = textureSample(myTexture, mySampler, fragData.uv);
             // return texColor; // Output only texture color
+            return fragData.color; // Modulate with vertex color (or just return color for now)
         }
     `;
 
     const shaderModule = gpuDevice.createShaderModule({ code: wgslShaders });
 
-    // Define bind group layout explicitly including texture/sampler
+    // Define bind group layout explicitly (Only Uniform Buffer for now)
      const bindGroupLayout = gpuDevice.createBindGroupLayout({
         entries: [
             { // Binding 0: Uniform Buffer (Matrix)
                 binding: 0,
-                visibility: GPUShaderStage.VERTEX, // Only vertex shader needs matrix
+                visibility: GPUShaderStage.VERTEX,
                 buffer: { type: 'uniform' },
             },
-            { // Binding 1: Texture View
-                binding: 1,
-                visibility: GPUShaderStage.FRAGMENT, // Only fragment shader needs texture
-                texture: {}, // Default texture binding
-            },
-            { // Binding 2: Sampler
-                binding: 2,
-                visibility: GPUShaderStage.FRAGMENT, // Only fragment shader needs sampler
-                sampler: {}, // Default sampler binding
-            },
+             // Remove texture/sampler entries for now
         ],
     });
 
