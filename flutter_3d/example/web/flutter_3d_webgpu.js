@@ -261,10 +261,10 @@ function setupPipeline(meshData) {
 
         @fragment
         fn fs_main(fragData: VertexOutput) -> @location(0) vec4<f32> {
-            // Sample the texture using the interpolated UVs
-            let texColor = textureSample(myTexture, mySampler, fragData.uv);
-            return texColor; // Output only texture color
-            // return texColor * fragData.color; // Modulate with vertex color
+            // DEBUG: Output constant color to check if pipeline runs with texture bindings
+            return vec4(1.0, 0.0, 1.0, 1.0); // Magenta
+            // let texColor = textureSample(myTexture, mySampler, fragData.uv);
+            // return texColor; // Output only texture color
         }
     `;
 
