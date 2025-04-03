@@ -263,8 +263,8 @@ function setupPipeline(meshData) {
         fn fs_main(fragData: VertexOutput) -> @location(0) vec4<f32> {
             // Sample the texture using the interpolated UVs
             let texColor = textureSample(myTexture, mySampler, fragData.uv);
-            // return texColor; // Output only texture color
-            return texColor * fragData.color; // Modulate with vertex color
+            return texColor; // Output only texture color
+            // return texColor * fragData.color; // Modulate with vertex color
         }
     `;
 
