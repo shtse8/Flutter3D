@@ -2,8 +2,8 @@ import 'dart:async';
 import 'dart:typed_data'; // Needed for Float32List
 import 'package:flutter/material.dart';
 
-// Import the main plugin library
-import 'package:flutter_3d/flutter_3d.dart';
+// Import the main plugin library with a prefix
+import 'package:flutter_3d/flutter_3d.dart' as f3d;
 import 'package:vector_math/vector_math_64.dart' as vm; // For Matrix4, radians
 
 // Import web-specific libraries needed for canvas setup
@@ -22,11 +22,11 @@ class MyApp extends StatefulWidget {
 }
 
 class _MyAppState extends State<MyApp> {
-  // Use the core API classes
-  final Renderer _renderer = Renderer();
-  final Scene _scene = Scene();
-  final Camera _camera = Camera();
-  Object3D? _triangleObject;
+  // Use the core API classes with prefix
+  final f3d.Renderer _renderer = f3d.Renderer();
+  final f3d.Scene _scene = f3d.Scene();
+  final f3d.Camera _camera = f3d.Camera();
+  f3d.Object3D? _triangleObject;
   // double _rotationY = 0.0; // No longer rotating
 
   bool _isRendererInitialized = false;
@@ -94,33 +94,56 @@ class _MyAppState extends State<MyApp> {
 
   void _setupScene() {
     // Define triangle mesh data using the API
+    // Add UV coordinates (s, t)
     final Float32List vertices = Float32List.fromList([
-      // Position      Color
-      0.0, 0.5, 1.0, 0.0, 0.0, // Top vertex, red
-      -0.5, -0.5, 0.0, 1.0, 0.0, // Bottom left, green
-      0.5, -0.5, 0.0, 0.0, 1.0, // Bottom right, blue
+      // Position      Color          UV
+      0.0, 0.5, 1.0, 1.0, 1.0, 0.5, 1.0, // Top vertex, white, top-center UV
+      -0.5, -0.5, 1.0, 1.0, 1.0, 0.0, 0.0, // Bottom left, white, bottom-left UV
+      0.5,
+      -0.5,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      0.0, // Bottom right, white, bottom-right UV
     ]);
     const int vertexStride =
-        5 * Float32List.bytesPerElement; // 5 floats per vertex
-    final List<VertexAttribute> attributes = [
-      VertexAttribute(name: 'position', offset: 0, format: 'float32x2'),
-      VertexAttribute(
+        7 * Float32List.bytesPerElement; // 2 pos + 3 color + 2 uv = 7 floats
+    final List<f3d.VertexAttribute> attributes = [
+      // Use prefix
+      f3d.VertexAttribute(name: 'position', offset: 0, format: 'float32x2'),
+      f3d.VertexAttribute(
         name: 'color',
         offset: 2 * Float32List.bytesPerElement,
         format: 'float32x3',
       ),
+      f3d.VertexAttribute(
+        name: 'uv',
+        offset: 5 * Float32List.bytesPerElement,
+        format: 'float32x2',
+      ), // Add UV attribute
     ];
 
-    final Mesh triangleMesh = Mesh(
+    final f3d.Mesh triangleMesh = f3d.Mesh(
+      // Use prefix
       vertices: vertices,
       vertexCount: 3,
       vertexStride: vertexStride,
       attributes: attributes,
     );
 
+    // Create texture and material using prefix
+    final f3d.Texture sampleTexture = f3d.Texture(
+      source:
+          'https://upload.wikimedia.org/wikipedia/commons/thumb/4/4f/SVG_Logo.svg/512px-SVG_Logo.svg.png',
+    );
+    final f3d.Material triangleMaterial = f3d.Material(map: sampleTexture);
+
     // Create an object, store it, and add it to the scene
-    // TODO: Create a basic Material class later
-    _triangleObject = Object3D(mesh: triangleMesh);
+    _triangleObject = f3d.Object3D(
+      mesh: triangleMesh,
+      material: triangleMaterial,
+    ); // Use prefix
     _scene.add(_triangleObject!);
 
     print("Scene setup complete with one triangle object.");

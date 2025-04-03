@@ -52,7 +52,8 @@ class Renderer {
         if (!_uploadedMeshHashes.contains(meshHash)) {
           print("Renderer: Uploading mesh ${meshHash}...");
           // TODO: Handle buffer handle/ID properly
-          _platformRenderer!.setupMesh(mesh);
+          // Call setupObject asynchronously, but don't await here in render loop
+          _platformRenderer!.setupObject(object);
           _uploadedMeshHashes.add(meshHash);
         }
 
@@ -62,7 +63,7 @@ class Renderer {
         // ); // Can be verbose
 
         // Render the mesh using the platform implementation, passing its transform
-        _platformRenderer!.renderMesh(mesh, object.transform);
+        _platformRenderer!.renderObject(object);
       }
     }
   }
@@ -161,12 +162,19 @@ class Mesh {
 
 /// Represents the surface appearance of an object (shaders, textures, parameters).
 class Material {
-  // TODO: Implement material properties and shader linkage.
+  Texture? map; // Basic diffuse texture map
+  // TODO: Add color, shader reference, other properties later
+
+  Material({this.map});
 }
 
 /// Represents image data used for texturing.
 class Texture {
-  // TODO: Implement texture loading and management.
+  final String source; // URL or asset path for now
+  // TODO: Add properties like wrap modes, filtering later
+  // TODO: Hold reference to GPU texture object?
+
+  Texture({required this.source});
 }
 
 /// Represents shader programs defining rendering logic.

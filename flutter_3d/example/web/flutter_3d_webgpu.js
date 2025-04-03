@@ -7,28 +7,25 @@ let gpuDevice = null;
 let gpuAdapter = null;
 let canvasContext = null;
 let presentationFormat = null;
-let pipeline = null;
+let pipeline = null; // Single pipeline for now
+let defaultSampler = null; // Add a default sampler
 
-// Store mesh data (buffers, counts, etc.) keyed by meshId from Dart
+// Store mesh data (buffers, counts, etc.) keyed by meshId
 const meshRegistry = new Map();
-// Store uniform buffer and bind group per object (using meshId as key for now)
-const objectUniforms = new Map();
+// Store object data (uniform buffer, bind group, texture) keyed by objectId (meshId for now)
+const objectRegistry = new Map();
 
 // Matrix size in bytes (4x4 float32)
-const MATRIX_SIZE = 4 * 4 * Float32Array.BYTES_PER_ELEMENT; // 64 bytes
-// Pad buffer size to 256 bytes for potential alignment requirements
-const UNIFORM_BUFFER_SIZE = Math.ceil(MATRIX_SIZE / 256) * 256; // Should be 256
+const MATRIX_SIZE = 4 * 4 * Float32Array.BYTES_PER_ELEMENT;
+const UNIFORM_BUFFER_SIZE = Math.ceil(MATRIX_SIZE / 256) * 256; // 256
 
 // --- Initialization ---
 
 async function initWebGPU() {
-    // ... (initWebGPU function remains the same) ...
     if (gpuDevice) return true;
     console.log("Initializing WebGPU...");
     if (!navigator.gpu) {
-        console.error("WebGPU not supported.");
-        alert("WebGPU is not supported.");
-        return false;
+        console.error("WebGPU not supported."); alert("WebGPU is not supported."); return false;
     }
     try {
         gpuAdapter = await navigator.gpu.requestAdapter();
@@ -41,129 +38,196 @@ async function initWebGPU() {
 
         gpuDevice.lost.then((info) => {
             console.error(`WebGPU device lost: ${info.message}`);
-            gpuDevice = null;
-            gpuAdapter = null;
-            pipeline = null;
-            meshRegistry.clear();
-            objectUniforms.clear(); // Clear uniforms on device loss
+            gpuDevice = null; gpuAdapter = null; pipeline = null; defaultSampler = null;
+            meshRegistry.clear(); objectRegistry.clear();
             // TODO: Handle device loss more robustly
         });
+
+        // Create a default sampler
+        defaultSampler = gpuDevice.createSampler({
+            magFilter: 'linear',
+            minFilter: 'linear',
+            // addressModeU/V/W, mipmapFilter etc. can be added later
+        });
+        console.log("Default sampler created.");
 
         console.log("WebGPU initialization successful.");
         return true;
     } catch (error) {
-        console.error("Error initializing WebGPU:", error);
-        alert(`Error initializing WebGPU: ${error.message}`);
-        return false;
+        console.error("Error initializing WebGPU:", error); alert(`Error initializing WebGPU: ${error.message}`); return false;
     }
 }
 
-// --- Mesh Buffer Setup ---
+// --- Texture Loading ---
 
-function setupMeshBuffer(meshId, vertices, stride, attributes) {
-    // ... (setupMeshBuffer function remains largely the same) ...
-    if (!gpuDevice) {
-        console.error("Cannot setup mesh buffer: WebGPU device not initialized.");
+/**
+ * Loads an image from a URL and creates a WebGPU texture.
+ * @param {string} url Image URL.
+ * @returns {Promise<GPUTexture | null>} The GPU texture or null on error.
+ */
+async function loadTexture(url) {
+    if (!gpuDevice) { console.error("GPU device not ready for texture loading."); return null; }
+    console.log(`Loading texture: ${url}`);
+    try {
+        const response = await fetch(url, { mode: 'cors' }); // Use CORS mode
+        if (!response.ok) { throw new Error(`HTTP error! status: ${response.status}`); }
+        const imageBitmap = await createImageBitmap(await response.blob());
+        console.log(`Image loaded: ${imageBitmap.width}x${imageBitmap.height}`);
+
+        const texture = gpuDevice.createTexture({
+            size: [imageBitmap.width, imageBitmap.height, 1],
+            format: 'rgba8unorm', // Common format
+            usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT,
+        });
+
+        gpuDevice.queue.copyExternalImageToTexture(
+            { source: imageBitmap },
+            { texture: texture },
+            [imageBitmap.width, imageBitmap.height]
+        );
+        console.log("Texture created and data copied.");
+        return texture;
+
+    } catch (error) {
+        console.error(`Error loading texture ${url}:`, error);
         return null;
     }
-    console.log(`Setting up buffer for meshId: ${meshId}`);
-    console.log(`  Vertices length: ${vertices.length}, Stride: ${stride}`);
-    console.log(`  Attributes:`, attributes);
+}
+
+
+// --- Mesh & Object Setup ---
+
+/**
+ * Creates/updates vertex buffer, uniform buffer, texture, sampler, and bind group for an object.
+ * @param {string} objectId Unique ID for the object (using meshId for now).
+ * @param {Float32Array} vertices Interleaved vertex data.
+ * @param {number} stride Vertex stride in bytes.
+ * @param {Array<object>} attributes Array of attribute descriptions.
+ * @param {string | null} textureUrl URL of the texture to load, or null.
+ * @returns {Promise<string | null>} The objectId if successful, null otherwise.
+ */
+async function setupObject(objectId, vertices, stride, attributes, textureUrl) {
+    if (!gpuDevice) { console.error("Cannot setup object: WebGPU device not initialized."); return null; }
+    console.log(`Setting up objectId: ${objectId}`);
 
     try {
-        if (meshRegistry.has(meshId)) {
-            console.warn(`Mesh ${meshId} already exists, recreating buffer.`);
-            // TODO: Destroy old buffer? meshRegistry.get(meshId).buffer.destroy();
+        // --- Vertex Buffer (from meshRegistry logic) ---
+        let meshData = meshRegistry.get(objectId);
+        if (!meshData) {
+            console.log(`  Creating vertex buffer for mesh ${objectId}`);
+            const vertexBuffer = gpuDevice.createBuffer({
+                size: vertices.byteLength,
+                usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+                mappedAtCreation: true,
+            });
+            new Float32Array(vertexBuffer.getMappedRange()).set(vertices);
+            vertexBuffer.unmap();
+            const vertexCount = vertices.length / (stride / Float32Array.BYTES_PER_ELEMENT);
+            meshData = { buffer: vertexBuffer, vertexCount: vertexCount, stride: stride, attributes: attributes };
+            meshRegistry.set(objectId, meshData);
+            console.log(`  Vertex buffer created, Vertex count: ${vertexCount}`);
+        } else {
+             console.log(`  Reusing vertex buffer for mesh ${objectId}`);
+             // TODO: Handle vertex buffer updates if needed
         }
 
-        const vertexBuffer = gpuDevice.createBuffer({
-            size: vertices.byteLength,
-            usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
-            mappedAtCreation: true,
-        });
-        new Float32Array(vertexBuffer.getMappedRange()).set(vertices);
-        vertexBuffer.unmap();
+        // --- Texture ---
+        let gpuTexture = null;
+        if (textureUrl) {
+            // TODO: Cache textures based on URL
+            gpuTexture = await loadTexture(textureUrl);
+            if (!gpuTexture) { console.warn(`  Failed to load texture for ${objectId}`); }
+        }
+        // TODO: Use a default placeholder texture if loading fails or no URL provided?
 
-        const vertexCount = vertices.length / (stride / Float32Array.BYTES_PER_ELEMENT);
-
-        meshRegistry.set(meshId, {
-            buffer: vertexBuffer,
-            vertexCount: vertexCount,
-            stride: stride,
-            attributes: attributes
-        });
-
-        // --- Also create uniform buffer and bind group for this object ---
+        // --- Uniform Buffer ---
+        // TODO: Reuse uniform buffer if objectId exists?
         const uniformBuffer = gpuDevice.createBuffer({
-            size: UNIFORM_BUFFER_SIZE, // Use padded size
+            size: UNIFORM_BUFFER_SIZE,
             usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-            // MappedAtCreation is NOT allowed for UNIFORM usage!
         });
+        // Initialize with identity
+        const identityMatrix = new Float32Array([1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]);
+        gpuDevice.queue.writeBuffer(uniformBuffer, 0, identityMatrix.buffer, identityMatrix.byteOffset, identityMatrix.byteLength);
 
-        // Write initial identity matrix immediately after creation
-        const identityMatrix = new Float32Array([
-            1, 0, 0, 0,  0, 1, 0, 0,  0, 0, 1, 0,  0, 0, 0, 1
-        ]);
-        gpuDevice.queue.writeBuffer(
-            uniformBuffer, 0, identityMatrix.buffer, identityMatrix.byteOffset, identityMatrix.byteLength
-        );
-
-        // Ensure pipeline exists to get its layout for the bind group
-        // Note: This assumes pipeline layout is compatible across meshes for now
-        // Pass meshData to setupPipeline so it can access stride/attributes
-        if (!pipeline && !setupPipeline(meshRegistry.get(meshId))) {
+        // --- Pipeline (ensure created) ---
+        // Note: Assumes pipeline is compatible for all objects for now
+        if (!pipeline && !setupPipeline(meshData)) { // Pass meshData for stride/attributes
              throw new Error("Failed to setup pipeline for bind group creation.");
         }
 
+        // --- Bind Group ---
         const bindGroup = gpuDevice.createBindGroup({
             layout: pipeline.getBindGroupLayout(0), // Use layout from pipeline
-            entries: [{
-                binding: 0,
-                resource: { buffer: uniformBuffer },
-            }],
+            entries: [
+                { // Binding 0: Uniform Buffer (Matrix)
+                    binding: 0,
+                    resource: { buffer: uniformBuffer },
+                },
+                { // Binding 1: Texture View
+                    binding: 1,
+                    // Use loaded texture view or a default/dummy one
+                    resource: gpuTexture ? gpuTexture.createView() : createDummyTextureView(),
+                },
+                 { // Binding 2: Sampler
+                    binding: 2,
+                    resource: defaultSampler, // Use the default sampler
+                },
+            ],
         });
 
-        objectUniforms.set(meshId, {
-            buffer: uniformBuffer,
+        // Store all object-specific resources
+        objectRegistry.set(objectId, {
+            uniformBuffer: uniformBuffer,
             bindGroup: bindGroup,
-            // Store matrix data? Or expect it to be passed in renderMesh?
-            // Let's expect it in renderMesh for now.
+            texture: gpuTexture // Store texture if needed for disposal later
         });
-        // ----------------------------------------------------------------
 
-        console.log(`Buffer and uniforms created for mesh ${meshId}, Vertex count: ${vertexCount}`);
-        return meshId;
+        console.log(`  Uniforms and BindGroup created for object ${objectId}`);
+        return objectId;
 
     } catch (error) {
-        console.error(`Error setting up buffer/uniforms for mesh ${meshId}:`, error);
+        console.error(`Error setting up object ${objectId}:`, error);
         return null;
     }
+}
+
+// Helper to create a dummy 1x1 texture view if needed
+let dummyTextureView = null;
+function createDummyTextureView() {
+    if (!gpuDevice) return null;
+    if (!dummyTextureView) {
+        const texture = gpuDevice.createTexture({
+            size: [1, 1, 1], format: 'rgba8unorm',
+            usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+        });
+        const data = new Uint8Array([255, 255, 255, 255]); // White pixel
+        gpuDevice.queue.writeTexture({ texture }, data, { bytesPerRow: 4 }, [1, 1]);
+        dummyTextureView = texture.createView();
+        console.log("Created dummy texture view.");
+    }
+    return dummyTextureView;
 }
 
 
 // --- Graphics Pipeline Setup ---
 
 function setupPipeline(meshData) {
-    // ... (setupPipeline function remains largely the same, but uses gpuAttributes) ...
-    const attributes = meshData.attributes; // Get attributes from meshData
-    const stride = meshData.stride; // Get stride from meshData
+    const attributes = meshData.attributes;
+    const stride = meshData.stride;
 
-    if (!gpuDevice || !presentationFormat) {
-        console.error("Cannot setup pipeline: WebGPU device or presentation format not ready."); return false;
-    }
+    if (!gpuDevice || !presentationFormat) { console.error("Pipeline setup: Device/Format not ready."); return false; }
     if (pipeline) return true; // Already created
 
     console.log("Setting up render pipeline...");
 
-    const gpuAttributes = attributes.map((attr, index) => ({
-        shaderLocation: attr.name === 'position' ? 0 : (attr.name === 'color' ? 1 : index),
+    const gpuAttributes = attributes.map((attr) => ({
+        shaderLocation: attr.name === 'position' ? 0 : (attr.name === 'color' ? 1 : (attr.name === 'uv' ? 2 : -1)), // Assign locations
         offset: attr.offset,
         format: attr.format
-    }));
+    })).filter(attr => attr.shaderLocation !== -1); // Filter out unassigned attributes
     console.log("GPU Attributes for pipeline:", gpuAttributes);
-    // Stride is now correctly passed in via meshData
     console.log("Using stride from meshData:", stride);
-
 
     const wgslShaders = `
         struct Uniforms {
@@ -171,50 +235,74 @@ function setupPipeline(meshData) {
         };
         @group(0) @binding(0) var<uniform> uniforms : Uniforms;
 
+        // Texture and Sampler bindings
+        @group(0) @binding(1) var myTexture: texture_2d<f32>;
+        @group(0) @binding(2) var mySampler: sampler;
+
         struct VertexOutput {
             @builtin(position) position : vec4<f32>,
             @location(0) color : vec4<f32>,
+            @location(1) uv : vec2<f32>,
         };
 
         @vertex
-        fn vs_main(@location(0) pos: vec2<f32>, @location(1) color: vec3<f32>) -> VertexOutput {
+        fn vs_main(
+            @location(0) pos: vec2<f32>,
+            @location(1) color: vec3<f32>,
+            @location(2) uv: vec2<f32> // Add UV input
+        ) -> VertexOutput {
             var output : VertexOutput;
             // TEMPORARY DEBUG: Output raw position, ignoring matrix
-            output.position = vec4<f32>(pos, 0.0, 1.0);
+             output.position = vec4<f32>(pos, 0.0, 1.0);
             // output.position = uniforms.modelViewProjectionMatrix * vec4<f32>(pos, 0.0, 1.0);
             output.color = vec4<f32>(color, 1.0);
+            output.uv = uv;
             return output;
         }
 
         @fragment
-        fn fs_main(@location(0) color: vec4<f32>) -> @location(0) vec4<f32> {
-            return color; // Original color passthrough
+        fn fs_main(fragData: VertexOutput) -> @location(0) vec4<f32> {
+            // Sample the texture using the interpolated UVs
+            let texColor = textureSample(myTexture, mySampler, fragData.uv);
+            // return texColor; // Output only texture color
+            return texColor * fragData.color; // Modulate with vertex color
         }
     `;
 
     const shaderModule = gpuDevice.createShaderModule({ code: wgslShaders });
 
-    // Define bind group layout explicitly
+    // Define bind group layout explicitly including texture/sampler
      const bindGroupLayout = gpuDevice.createBindGroupLayout({
-        entries: [{
-            binding: 0,
-            visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, // Add Fragment visibility
-            buffer: { type: 'uniform' },
-        }],
+        entries: [
+            { // Binding 0: Uniform Buffer (Matrix)
+                binding: 0,
+                visibility: GPUShaderStage.VERTEX, // Only vertex shader needs matrix
+                buffer: { type: 'uniform' },
+            },
+            { // Binding 1: Texture View
+                binding: 1,
+                visibility: GPUShaderStage.FRAGMENT, // Only fragment shader needs texture
+                texture: {}, // Default texture binding
+            },
+            { // Binding 2: Sampler
+                binding: 2,
+                visibility: GPUShaderStage.FRAGMENT, // Only fragment shader needs sampler
+                sampler: {}, // Default sampler binding
+            },
+        ],
     });
 
     const pipelineLayout = gpuDevice.createPipelineLayout({
         bindGroupLayouts: [bindGroupLayout], // Use the explicit layout
     });
 
-
     pipeline = gpuDevice.createRenderPipeline({
-        layout: pipelineLayout, // Use the created layout
+        layout: pipelineLayout,
         vertex: {
             module: shaderModule,
             entryPoint: 'vs_main',
             buffers: [{
-                arrayStride: stride, // Use stride from meshData passed into setupPipeline
+                arrayStride: stride,
                 attributes: gpuAttributes,
             }],
         },
@@ -231,12 +319,9 @@ function setupPipeline(meshData) {
 
 // Helper to get byte size of a format (simplified)
 function _getFormatByteSize(format) {
-    // ... (remains the same) ...
     switch(format) {
-        case 'float32x2': return 2 * 4;
-        case 'float32x3': return 3 * 4;
-        case 'float32x4': return 4 * 4;
-        default: return 0;
+        case 'float32x2': return 2 * 4; case 'float32x3': return 3 * 4; case 'float32x4': return 4 * 4;
+        default: console.warn(`Unknown format size: ${format}`); return 0;
     }
 }
 
@@ -244,27 +329,13 @@ function _getFormatByteSize(format) {
 // --- Canvas Setup ---
 
 function configureCanvasContext(canvas) {
-    // ... (remains the same, no longer calls setupPipeline directly) ...
-    if (!gpuDevice) {
-        console.error("WebGPU device not initialized."); return false;
-    }
-    if (!canvas) {
-        console.error("Invalid canvas element."); return false;
-    }
-
+    if (!gpuDevice) { console.error("WebGPU device not initialized."); return false; }
+    if (!canvas) { console.error("Invalid canvas element."); return false; }
     canvasContext = canvas.getContext('webgpu');
-    if (!canvasContext) {
-        console.error("Failed to get WebGPU context."); return false;
-    }
-
+    if (!canvasContext) { console.error("Failed to get WebGPU context."); return false; }
     presentationFormat = navigator.gpu.getPreferredCanvasFormat();
     console.log("Preferred canvas format:", presentationFormat);
-
-    canvasContext.configure({
-        device: gpuDevice,
-        format: presentationFormat,
-        alphaMode: 'premultiplied'
-    });
+    canvasContext.configure({ device: gpuDevice, format: presentationFormat, alphaMode: 'premultiplied' });
     console.log("Canvas context configured.");
     return true;
 }
@@ -273,59 +344,36 @@ function configureCanvasContext(canvas) {
 // --- Rendering Logic ---
 
 /**
- * Renders a mesh identified by meshId using its transform matrix.
- * @param {string} meshId The ID of the mesh to render.
+ * Renders a mesh identified by objectId using its transform matrix and texture.
+ * @param {string} objectId The ID of the object to render.
  * @param {Float32Array} transformMatrix The 4x4 transformation matrix.
  */
-function renderMesh(meshId, transformMatrix) {
-    if (!gpuDevice || !canvasContext) {
-        console.warn("Cannot render: WebGPU device or canvas context not ready."); return;
-    }
+function renderObject(objectId, transformMatrix) { // Renamed from renderMesh
+    if (!gpuDevice || !canvasContext) { console.warn("Cannot render: Device/Context not ready."); return; }
 
-    const meshData = meshRegistry.get(meshId);
-    const uniformData = objectUniforms.get(meshId);
+    const meshData = meshRegistry.get(objectId);
+    const objectData = objectRegistry.get(objectId); // Get object data (uniforms, bindgroup)
 
-    if (!meshData || !uniformData) {
-        console.warn(`Cannot render: Mesh or uniform data not found for id ${meshId}.`); return;
-    }
+    if (!meshData || !objectData) { console.warn(`Cannot render: Data not found for id ${objectId}.`); return; }
 
-    // Ensure pipeline is created (pass meshData to use its attributes/stride)
-    // This will only create the pipeline once if it doesn't exist
-    if (!pipeline && !setupPipeline(meshData)) {
-         console.error("Cannot render: Failed to setup pipeline."); return;
-    }
+    // Ensure pipeline is created (pass meshData for attributes/stride)
+    if (!pipeline && !setupPipeline(meshData)) { console.error("Cannot render: Failed to setup pipeline."); return; }
 
-    // Log the received matrix for debugging
-    // console.log(`JS: Rendering mesh ${meshId} with matrix:`, transformMatrix); // Can be very verbose
-
-    // Update the uniform buffer with the latest matrix
-    // Use the explicit buffer source signature for writeBuffer
+    // Update the uniform buffer
     gpuDevice.queue.writeBuffer(
-        uniformData.buffer,       // destination buffer
-        0,                        // destination offset
-        transformMatrix.buffer,   // source buffer (ArrayBuffer)
-        transformMatrix.byteOffset, // source offset
-        transformMatrix.byteLength  // source size (should be MATRIX_SIZE)
+        objectData.uniformBuffer, 0, transformMatrix.buffer, transformMatrix.byteOffset, transformMatrix.byteLength
     );
 
     // --- Render Pass ---
     const commandEncoder = gpuDevice.createCommandEncoder();
     const textureView = canvasContext.getCurrentTexture().createView();
     const renderPassDescriptor = {
-        colorAttachments: [{
-            view: textureView,
-            clearValue: { r: 0.1, g: 0.1, b: 0.1, a: 1.0 },
-            loadOp: 'clear',
-            storeOp: 'store',
-        }],
+        colorAttachments: [{ view: textureView, clearValue: { r: 0.1, g: 0.1, b: 0.1, a: 1.0 }, loadOp: 'clear', storeOp: 'store' }],
     };
 
     const passEncoder = commandEncoder.beginRenderPass(renderPassDescriptor);
     passEncoder.setPipeline(pipeline);
-    // Explicitly set viewport (though often defaults correctly)
-    const canvas = canvasContext.canvas;
-    passEncoder.setViewport(0, 0, canvas.width, canvas.height, 0, 1);
-    passEncoder.setBindGroup(0, uniformData.bindGroup); // Set the bind group for uniforms
+    passEncoder.setBindGroup(0, objectData.bindGroup); // Set the object-specific bind group
     passEncoder.setVertexBuffer(0, meshData.buffer);
     passEncoder.draw(meshData.vertexCount, 1, 0, 0);
     passEncoder.end();
@@ -338,8 +386,9 @@ function renderMesh(meshId, transformMatrix) {
 window.flutter3d_webgpu = {
     initWebGPU,
     configureCanvasContext,
-    setupMeshBuffer,
-    renderMesh
+    // setupMeshBuffer, // Replaced by setupObject
+    setupObject, // Expose the new setup function
+    renderObject // Expose the renamed render function
 };
 
-console.log("flutter_3d_webgpu.js loaded (with transforms).");
+console.log("flutter_3d_webgpu.js loaded (with texture support).");

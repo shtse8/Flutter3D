@@ -2,7 +2,7 @@
 
 ## Current Status
 
-*   **Overall:** Core Dart API connected to WebGPU backend; triangle rendering via API working. Mesh upload optimized.
+*   **Overall:** Static triangle rendering via Dart API working on WebGPU backend. Matrix transformations paused due to rendering issues.
 *   **Date:** 2025-04-03
 
 ## What Works
@@ -21,8 +21,9 @@
 ## What's Left To Build (High Level)
 
 *   Dart API **implementation** (connecting to web backend).
-*   Implement transformations (matrices).
+*   Debug/Fix matrix transformations.
 *   Implement texture mapping.
+*   Flesh out Material/Shader API.
 *   Native backend adapters (starting with Web/WebGPU).
 *   Shader handling system.
 *   Asset loading.
@@ -33,4 +34,4 @@
 
 ## Known Issues / Blockers
 
-*   None at this stage.
+*   Matrix transformations cause blank screen despite seemingly correct setup (WebGPU). Reverted code to static rendering baseline (commit `e2cf173`). Debugging paused.

@@ -56,17 +56,19 @@ extension Flutter3DWebGPUJSMethods on Flutter3DWebGPUJS {
   @JS('configureCanvasContext')
   external JSBoolean configureCanvasContext(web.HTMLCanvasElement canvas);
 
-  // New function to create/update GPU buffer for a mesh
-  @JS('setupMeshBuffer')
-  external JSAny? setupMeshBuffer(
-    String meshId,
+  // New function to setup vertex buffer, uniforms, texture, bind group for an object
+  @JS('setupObject')
+  external JSPromise<JSAny?> setupObject(
+    // Returns Promise<objectId | null>
+    String objectId,
     JSTypedArray vertices,
     JSNumber stride,
     JSArray<JSObject> attributes,
-  ); // Returns buffer handle or null
+    JSString? textureUrl, // Optional texture URL
+  );
 
-  @JS('renderMesh')
-  external void renderMesh(String meshId, JSTypedArray transformMatrix); // Accepts meshId and matrix
+  @JS('renderObject') // Renamed JS function
+  external void renderObject(String objectId, JSTypedArray transformMatrix); // Accepts objectId and matrix
 }
 
 // Helper to access the global object
@@ -136,12 +138,17 @@ class Flutter3dWeb {
     }
   }
 
-  /// Creates or updates the GPU buffer for a given mesh.
-  /// Returns a handle (e.g., an ID or the buffer itself) for the GPU buffer.
-  dynamic setupMesh(Mesh mesh) {
-    // TODO: Need a way to uniquely identify meshes if we want to reuse buffers.
-    // For now, let's use hashCode as a simple ID, but this isn't robust.
-    final meshId = mesh.hashCode.toString();
+  /// Sets up the GPU resources for a given object (mesh, material/texture).
+  /// Returns the objectId if successful.
+  Future<String?> setupObject(Object3D object) async {
+    if (object.mesh == null) {
+      print('Error: Cannot setup object without a mesh.');
+      return null;
+    }
+    final mesh = object.mesh!;
+    // Use mesh hashCode as objectId for now
+    final objectId = mesh.hashCode.toString();
+    final textureUrl = object.material?.map?.source;
 
     final jsObject = _flutter3dWebGPU;
     if (jsObject == null) {
@@ -149,54 +156,72 @@ class Flutter3dWeb {
       return null;
     }
     try {
-      // Convert Dart list to JS TypedArray and attributes to JSArray<JSObject>
+      // Convert Dart data to JS types
       final jsVertices = mesh.vertices.toJS;
       final jsStride = mesh.vertexStride.toJS;
-      // Manually create JSArray<JSObject> for attributes
       final jsAttributesList = <JSObject>[];
       for (final attr in mesh.attributes) {
         final jsAttr = JSObject();
-        // Use the setProperty extension method from dart:js_interop_unsafe
         jsAttr.setProperty('name'.toJS, attr.name.toJS);
         jsAttr.setProperty('offset'.toJS, attr.offset.toJS);
         jsAttr.setProperty('format'.toJS, attr.format.toJS);
         jsAttributesList.add(jsAttr);
       }
       final jsAttributes = jsAttributesList.toJS;
+      final jsTextureUrl = textureUrl?.toJS; // Convert String? to JSString?
 
-      final bufferHandle = jsObject.setupMeshBuffer(
-        meshId,
+      // Call the async JS function
+      final resultPromise = jsObject.setupObject(
+        objectId,
         jsVertices,
         jsStride,
         jsAttributes,
+        jsTextureUrl,
       );
-      print(
-        'Dart: setupMeshBuffer called for mesh $meshId, handle: $bufferHandle',
-      );
-      return bufferHandle; // This might be null if JS function doesn't return handle yet
+      final result = await resultPromise.toDart; // Await the promise
+
+      // The JS function returns the objectId (string) or null
+      if (result != null && result is JSString) {
+        final returnedId = result.toDart;
+        print('Dart: setupObject completed for object $returnedId');
+        return returnedId;
+      } else {
+        print(
+          'Dart: setupObject failed for object $objectId (JS returned null or unexpected type)',
+        );
+        return null;
+      }
     } catch (e) {
-      print('Dart: Error calling setupMeshBuffer: $e');
+      print('Dart: Error calling setupObject for $objectId: $e');
       return null;
     }
   }
+  // Removed extra closing brace
 
-  /// Calls the JavaScript renderMesh function for a specific mesh.
-  /// Assumes setupMesh has already been called for this mesh.
-  void renderMesh(Mesh mesh, Matrix4 transform) {
+  /// Calls the JavaScript renderObject function.
+  /// Assumes setupObject has already been called.
+  void renderObject(Object3D object) {
+    // Method name already correct, just ensuring consistency
+    if (object.mesh == null) return; // Cannot render without mesh
+
+    if (object.mesh == null) return; // Cannot render without mesh
+    final mesh = object.mesh!; // Extract mesh
+    final transform = object.transform; // Extract transform
+
     final jsObject = _flutter3dWebGPU;
     if (jsObject == null) {
       print('Error: flutter_3d_webgpu.js script not loaded.');
       return;
     }
     try {
-      // Pass meshId and transform matrix to the JS renderMesh function
-      final meshId = mesh.hashCode.toString();
-      final jsMatrix = transform.storage.toJS; // Convert Matrix4 storage
+      // Use mesh hashCode as objectId for now
+      final objectId = object.mesh!.hashCode.toString();
+      final jsMatrix = object.transform.storage.toJS; // Pass current transform
 
-      jsObject.renderMesh(meshId, jsMatrix);
-      // print('Dart: renderMesh called.');
+      jsObject.renderObject(objectId, jsMatrix);
+      // print('Dart: renderObject called for $objectId');
     } catch (e) {
-      print('Dart: Error calling renderMesh: $e');
+      print('Dart: Error calling renderObject: $e');
     }
   }
 
